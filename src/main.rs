@@ -1,35 +1,54 @@
+use std::io::{Write, Read};
 use std::net::{TcpListener, TcpStream};
-use std::io::Write;
 
-use tokio::stream;
+fn handle_connection(mut stream: TcpStream) {
 
-fn handle_connection(mut stream : TcpStream) {
+    let mut buf = [0; 1028];
 
-    match stream.write_all(b"+PONG\r\n") {
+    match stream.read(&mut buf) {
 
-        Ok(()) => {
-
-        } Err(e) => {
+        Ok(size) => {
+            println!("Received bytes: {}", size);
+        }
+        Err(e) => {
             println!("error: {}", e);
+        }
+
+    };
+
+    let received = String::from_utf8_lossy(&buf);
+
+    let ping = received.split("\\r\\n");
+
+    for pinged in ping.into_iter(){
+        if pinged.starts_with("ping") {
+            match stream.write(b"+PONG\r\n") {
+                Ok(size) => {
+                }
+                Err(e) => {
+                    println!("error: {}", e);
+                }
+            };
 
         }
-    };
+    }
+
 }
 
 fn main() {
     println!("Logs from your program will appear here!");
 
-     let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
+    let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
 
-     for stream in listener.incoming() {
-         match stream {
-             Ok(stream) => {
-                 println!("accepted new connection");
-                 handle_connection(stream);
-             }
-             Err(e) => {
-                 println!("error: {}", e);
-             }
-         }
-     }
+    for stream in listener.incoming() {
+        match stream {
+            Ok(stream) => {
+                println!("accepted new connection");
+                handle_connection(stream);
+            }
+            Err(e) => {
+                println!("error: {}", e);
+            }
+        }
+    }
 }
