@@ -18,7 +18,7 @@ fn handle_connection(mut stream: TcpStream) {
 
     let received = String::from_utf8_lossy(&buf);
 
-    let ping = received.split("\r\n");
+    let ping = received.split("\n");
 
     for pinged in ping.into_iter(){
         if pinged.to_lowercase().starts_with("ping") {
