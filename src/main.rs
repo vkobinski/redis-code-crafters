@@ -1,4 +1,5 @@
 use std::io::{Write, Read};
+use std::thread;
 use std::net::{TcpListener, TcpStream};
 
 fn handle_connection(mut stream: TcpStream) {
@@ -23,7 +24,6 @@ fn handle_connection(mut stream: TcpStream) {
         let ping = received.split("\r\n");
 
         for pinged in ping.into_iter(){
-            println!("{pinged}");
             if pinged.to_lowercase().contains("ping") {
                 match stream.write(b"+PONG\r\n") {
                     Ok(size) => {
@@ -50,7 +50,9 @@ fn main() {
         match stream {
             Ok(stream) => {
                 println!("accepted new connection");
-                handle_connection(stream);
+                thread::spawn(|| {
+                    handle_connection(stream);
+                });
             }
             Err(e) => {
                 println!("error: {}", e);
