@@ -3,36 +3,40 @@ use std::net::{TcpListener, TcpStream};
 
 fn handle_connection(mut stream: TcpStream) {
 
-    let mut buf = [0; 1028];
+    loop {
 
-    match stream.read(&mut buf) {
+        let mut buf = [0; 1028];
 
-        Ok(size) => {
-            println!("Received bytes: {}", size);
+        match stream.read(&mut buf) {
+
+            Ok(size) => {
+                println!("Received bytes: {}", size);
+            }
+            Err(e) => {
+                println!("error: {}", e);
+            }
+
+        };
+
+        let received = String::from_utf8_lossy(&buf);
+
+        let ping = received.split("\r\n");
+
+        for pinged in ping.into_iter(){
+            println!("{pinged}");
+            if pinged.to_lowercase().contains("ping") {
+                match stream.write(b"+PONG\r\n") {
+                    Ok(size) => {
+                        println!("size: {size}");
+                    }
+                    Err(e) => {
+                        println!("error: {}", e);
+                    }
+                };
+
+            }
         }
-        Err(e) => {
-            println!("error: {}", e);
-        }
 
-    };
-
-    let received = String::from_utf8_lossy(&buf);
-
-    let ping = received.split("\r\n");
-
-    for pinged in ping.into_iter(){
-        println!("{pinged}");
-        if pinged.to_lowercase().contains("ping") {
-            match stream.write(b"+PONG\r\n") {
-                Ok(size) => {
-                    println!("size: {size}");
-                }
-                Err(e) => {
-                    println!("error: {}", e);
-                }
-            };
-
-        }
     }
 
 }
