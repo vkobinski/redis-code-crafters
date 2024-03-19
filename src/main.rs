@@ -18,12 +18,12 @@ fn handle_connection(mut stream: TcpStream) {
 
     let received = String::from_utf8_lossy(&buf);
 
-    let ping = received.split("\\r\\n");
+    let ping = received.split("\r\n");
 
     for pinged in ping.into_iter(){
-        if pinged.starts_with("ping") {
+        if pinged.to_lowercase().starts_with("ping") {
             match stream.write(b"+PONG\r\n") {
-                Ok(size) => {
+                Ok(_size) => {
                 }
                 Err(e) => {
                     println!("error: {}", e);
