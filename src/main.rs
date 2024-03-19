@@ -21,6 +21,7 @@ fn handle_connection(mut stream: TcpStream) {
     let ping = received.split("\r\n");
 
     for pinged in ping.into_iter(){
+        println!("{pinged}");
         if pinged.to_lowercase().contains("ping") {
             match stream.write(b"+PONG\r\n") {
                 Ok(size) => {
