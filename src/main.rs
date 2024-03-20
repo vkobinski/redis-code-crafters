@@ -1,12 +1,18 @@
 mod resp;
 
+use std::borrow::BorrowMut;
+use std::collections::HashMap;
+use std::hash::Hash;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 use crate::resp::resp::Resp;
 
-fn handle_connection(mut stream: TcpStream) {
+type Persistence = Arc<Mutex<HashMap<String, String>>>;
+
+fn handle_connection(mut persistence: &Mutex<HashMap<String,String>>, mut stream: TcpStream) {
     loop {
         let mut buf = [0; 1028];
 
@@ -52,6 +58,42 @@ fn handle_connection(mut stream: TcpStream) {
                                 }
                             };
                         }
+                        "set" => {
+                            println!("vals_set: {:?}",vals);
+                            let key = vals.get(1).unwrap().to_string();
+                            let value = match vals.get(2).unwrap() {
+                                resp::resp::RespData::BulkString(v) => v,
+                                _ => panic!()
+                            };
+
+                            let mut persist = persistence.lock().unwrap();
+                            persist.insert(key, value.to_string());
+
+                            match stream.write(format!("+OK\r\n").as_bytes()) {
+                                Ok(size) => {
+                                    println!("size: {}", size);
+                                }
+                                Err(e) => {
+                                    println!("error: {}", e);
+                                }
+                            };
+                        }
+                        "get" => {
+                            println!("vals: {:?}",vals);
+                            let key = vals.get(1).unwrap().to_string();
+
+                            let persist = persistence.lock().unwrap();
+                            let value = persist.get(&key).unwrap();
+
+                            match stream.write(format!("+{}\r\n", value).as_bytes()) {
+                                Ok(size) => {
+                                    println!("size: {}", size);
+                                }
+                                Err(e) => {
+                                    println!("error: {}", e);
+                                }
+                            };
+                        }
                         _ => {
                             panic!("Unexpected command");
                         }
@@ -83,6 +125,9 @@ fn handle_connection(mut stream: TcpStream) {
 }
 
 fn main() {
+
+    let mut persist = Arc::new(Mutex::new(HashMap::new()));
+
     println!("Logs from your program will appear here!");
 
     let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
@@ -91,8 +136,9 @@ fn main() {
         match stream {
             Ok(stream) => {
                 println!("accepted new connection");
-                thread::spawn(|| {
-                    handle_connection(stream);
+                let persist = Arc::clone(&persist);
+                thread::spawn(move || {
+                    handle_connection(&persist, stream);
                 });
             }
             Err(e) => {
