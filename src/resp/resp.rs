@@ -97,11 +97,8 @@ impl RespData {
 
     pub fn parse_array(serialized: &String) -> Option<RespData> {
         let binding = serialized.chars().skip(1).collect::<String>();
-
         let mut vals = binding.split("\r\n").into_iter();
-
         let size = vals.next().unwrap().parse::<u32>().unwrap();
-
         let mut array: Vec<RespData> = vec![];
 
         for _ in 0..size {
