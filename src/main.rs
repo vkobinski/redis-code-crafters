@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
-use std::thread;
+use std::{env, thread};
 
 use crate::resp::resp::Resp;
 
@@ -157,7 +157,20 @@ fn main() {
 
     println!("Logs from your program will appear here!");
 
-    let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
+    let args: Vec<String> = env::args().collect();
+
+    let mut port = 6379;
+
+    for (i, arg) in args.iter().enumerate() {
+        match arg.as_str() {
+            "--port" => {
+                port = args.get(i + 1).unwrap().parse::<u16>().unwrap();
+            },
+            _ => {}
+        }
+    }
+
+    let listener = TcpListener::bind(format!("127.0.0.1:{}", port)).unwrap();
 
     for stream in listener.incoming() {
         match stream {
