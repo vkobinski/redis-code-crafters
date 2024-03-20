@@ -78,11 +78,11 @@ impl RespData {
         Some(RespData::SimpleString(res.to_string()))
     }
 
-    pub fn parse_error(chars: &String) -> Option<RespData> {
+    pub fn parse_error(_chars: &String) -> Option<RespData> {
         None
     }
 
-    pub fn parse_integer(chars: &String) -> Option<RespData> {
+    pub fn parse_integer(_chars: &String) -> Option<RespData> {
         None
     }
 

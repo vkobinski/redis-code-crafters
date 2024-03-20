@@ -114,6 +114,26 @@ fn handle_get(persistence: &Persistence, stream: &mut TcpStream, vals: &[resp::r
     }
 }
 
+fn handle_info(_persistence: &Persistence, stream: &mut TcpStream, vals: &[resp::resp::RespData]) {
+    match vals.get(1).unwrap() {
+        resp::resp::RespData::BulkString(val) => match val.as_str() {
+            "replication" => {
+                let response = resp::resp::RespData::BulkString(String::from("role:master"));
+                match stream.write(format!("{}\r\n", response.to_string()).as_bytes()) {
+                    Ok(size) => {
+                        println!("size: {}", size);
+                    }
+                    Err(e) => {
+                        println!("error: {}", e);
+                    }
+                };
+            }
+            _ => {}
+        },
+        _ => panic!(),
+    }
+}
+
 fn handle_request(persistence: &Persistence, stream: &mut TcpStream, req: &Resp) {
     match &req.data {
         resp::resp::RespData::Array(vals) => match vals.get(0).unwrap() {
@@ -122,6 +142,7 @@ fn handle_request(persistence: &Persistence, stream: &mut TcpStream, req: &Resp)
                 "echo" => handle_echo(stream, vals.get(1).unwrap()),
                 "set" => handle_set(persistence, stream, vals),
                 "get" => handle_get(persistence, stream, vals),
+                "info" => handle_info(persistence, stream, vals),
                 _ => panic!("Unexpected command"),
             },
             _ => panic!("Unexpected data type"),
@@ -165,7 +186,7 @@ fn main() {
         match arg.as_str() {
             "--port" => {
                 port = args.get(i + 1).unwrap().parse::<u16>().unwrap();
-            },
+            }
             _ => {}
         }
     }
