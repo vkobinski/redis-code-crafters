@@ -34,7 +34,7 @@ impl From<char> for RespType {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum RespData {
     SimpleString(String),
     Error(String),
@@ -87,7 +87,6 @@ impl RespData {
     }
 
     pub fn parse_bulk_string(serialized: &String) -> Option<RespData> {
-        println!("serialized: {:?}", serialized);
         let mut vals = serialized.split("\r\n");
         let size = vals.next().unwrap().parse::<usize>().unwrap();
 
