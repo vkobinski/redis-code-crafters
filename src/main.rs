@@ -1,44 +1,85 @@
-use std::io::{Write, Read};
-use std::thread;
+mod resp;
+
+use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::thread;
+
+use crate::resp::resp::Resp;
 
 fn handle_connection(mut stream: TcpStream) {
-
     loop {
-
         let mut buf = [0; 1028];
 
         match stream.read(&mut buf) {
-
             Ok(size) => {
+                if size <= 0 {
+                    return;
+                }
                 println!("Received bytes: {}", size);
             }
             Err(e) => {
                 println!("error: {}", e);
             }
-
         };
 
         let received = String::from_utf8_lossy(&buf);
 
-        let ping = received.split("\r\n");
+        let req = Resp::parse(received.to_string()).expect("Could not parse request");
 
-        for pinged in ping.into_iter(){
-            if pinged.to_lowercase().contains("ping") {
-                match stream.write(b"+PONG\r\n") {
-                    Ok(size) => {
-                        println!("size: {size}");
-                    }
-                    Err(e) => {
-                        println!("error: {}", e);
-                    }
-                };
+        match req.data {
+            resp::resp::RespData::Array(vals) => match vals.get(0).unwrap() {
+                resp::resp::RespData::BulkString(command) => {
+                    match command.to_lowercase().as_str() {
+                        "ping" => {
+                            match stream.write(b"+PONG\r\n") {
+                                Ok(size) => {
+                                    println!("size: {}", size);
+                                }
+                                Err(e) => {
+                                    println!("error: {}", e);
+                                }
+                            };
+                        }
+                        "echo" => {
+                            let data = vals.get(1).unwrap();
 
+                            match stream.write(format!("{}\r\n", data).as_bytes()) {
+                                Ok(size) => {
+                                    println!("size: {}", size);
+                                }
+                                Err(e) => {
+                                    println!("error: {}", e);
+                                }
+                            };
+                        }
+                        _ => {
+                            panic!("Unexpected command");
+                        }
+                    }
+                }
+                _ => {
+                    panic!("Unexpected data type");
+                }
+            },
+            _ => {
+                panic!("Unexpected data type");
             }
         }
 
-    }
+        //for pinged in ping.into_iter(){
+        //    if pinged.to_lowercase().contains("ping") {
+        //        match stream.write(b"+PONG\r\n") {
+        //            Ok(size) => {
+        //                println!("size: {size}");
+        //            }
+        //            Err(e) => {
+        //                println!("error: {}", e);
+        //            }
+        //        };
 
+        //    }
+        //}
+    }
 }
 
 fn main() {
