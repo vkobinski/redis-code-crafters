@@ -129,7 +129,8 @@ fn handle_info(
     match vals.get(1).unwrap() {
         redis::parse::RespData::BulkString(val) => match val.as_str() {
             "replication" => {
-                let response = persistence.info.lock().unwrap().get_role();
+                let response = persistence.info.lock().unwrap().replication();
+
                 match stream.write(format!("{}\r\n", response.to_string()).as_bytes()) {
                     Ok(size) => {
                         println!("size: {}", size);
