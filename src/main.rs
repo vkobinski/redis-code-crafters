@@ -1,4 +1,4 @@
-mod resp;
+mod redis;
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -6,15 +6,22 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::{env, thread};
 
-use crate::resp::resp::Resp;
+use redis::server::Info;
+
+use crate::redis::parse::Resp;
 
 struct PersistedValue {
-    pub data: resp::resp::RespData,
+    pub data: redis::parse::RespData,
     pub timestamp: std::time::SystemTime,
     pub expiry: u128,
 }
 
-type PersistenceArc = Arc<Mutex<HashMap<String, PersistedValue>>>;
+struct State {
+    pub persisted: Persistence,
+    pub info: Mutex<Info>,
+}
+
+type PersistenceArc = Arc<State>;
 type Persistence = Mutex<HashMap<String, PersistedValue>>;
 
 fn handle_ping(stream: &mut TcpStream) {
@@ -28,7 +35,7 @@ fn handle_ping(stream: &mut TcpStream) {
     };
 }
 
-fn handle_echo(stream: &mut TcpStream, data: &resp::resp::RespData) {
+fn handle_echo(stream: &mut TcpStream, data: &redis::parse::RespData) {
     match stream.write(format!("{}\r\n", data).as_bytes()) {
         Ok(size) => {
             println!("size: {}", size);
@@ -39,16 +46,16 @@ fn handle_echo(stream: &mut TcpStream, data: &resp::resp::RespData) {
     };
 }
 
-fn handle_set(persistence: &Persistence, stream: &mut TcpStream, vals: &[resp::resp::RespData]) {
+fn handle_set(persistence: &State, stream: &mut TcpStream, vals: &[redis::parse::RespData]) {
     println!("vals_set: {:?}", vals);
     let key = vals.get(1).unwrap().to_string();
     let value = vals.get(2).unwrap();
 
     let has_expiry = match vals.get(3) {
         Some(val) => match val {
-            resp::resp::RespData::BulkString(v) => match v.to_lowercase().as_str() {
+            redis::parse::RespData::BulkString(v) => match v.to_lowercase().as_str() {
                 "px" => match vals.get(4).unwrap() {
-                    resp::resp::RespData::BulkString(v) => v.parse::<u128>().unwrap(),
+                    redis::parse::RespData::BulkString(v) => v.parse::<u128>().unwrap(),
                     _ => panic!(),
                 },
                 _ => 0,
@@ -64,7 +71,7 @@ fn handle_set(persistence: &Persistence, stream: &mut TcpStream, vals: &[resp::r
         expiry: has_expiry,
     };
 
-    let mut persist = persistence.lock().unwrap();
+    let mut persist = persistence.persisted.lock().unwrap();
     persist.insert(key, insert_val);
 
     match stream.write(format!("+OK\r\n").as_bytes()) {
@@ -77,10 +84,10 @@ fn handle_set(persistence: &Persistence, stream: &mut TcpStream, vals: &[resp::r
     };
 }
 
-fn handle_get(persistence: &Persistence, stream: &mut TcpStream, vals: &[resp::resp::RespData]) {
+fn handle_get(persistence: &State, stream: &mut TcpStream, vals: &[redis::parse::RespData]) {
     let key = vals.get(1).unwrap().to_string();
 
-    let persist = persistence.lock().unwrap();
+    let persist = persistence.persisted.lock().unwrap();
     let value = persist.get(&key).unwrap();
 
     let now = std::time::SystemTime::now();
@@ -100,7 +107,7 @@ fn handle_get(persistence: &Persistence, stream: &mut TcpStream, vals: &[resp::r
     }
 
     match &value.data {
-        resp::resp::RespData::BulkString(v) => {
+        redis::parse::RespData::BulkString(v) => {
             match stream.write(format!("+{}\r\n", v).as_bytes()) {
                 Ok(size) => {
                     println!("size: {}", size);
@@ -114,11 +121,15 @@ fn handle_get(persistence: &Persistence, stream: &mut TcpStream, vals: &[resp::r
     }
 }
 
-fn handle_info(_persistence: &Persistence, stream: &mut TcpStream, vals: &[resp::resp::RespData]) {
+fn handle_info(
+    persistence: &State,
+    stream: &mut TcpStream,
+    vals: &[redis::parse::RespData],
+) {
     match vals.get(1).unwrap() {
-        resp::resp::RespData::BulkString(val) => match val.as_str() {
+        redis::parse::RespData::BulkString(val) => match val.as_str() {
             "replication" => {
-                let response = resp::resp::RespData::BulkString(String::from("role:master"));
+                let response = persistence.info.lock().unwrap().get_role();
                 match stream.write(format!("{}\r\n", response.to_string()).as_bytes()) {
                     Ok(size) => {
                         println!("size: {}", size);
@@ -134,24 +145,36 @@ fn handle_info(_persistence: &Persistence, stream: &mut TcpStream, vals: &[resp:
     }
 }
 
-fn handle_request(persistence: &Persistence, stream: &mut TcpStream, req: &Resp) {
+fn handle_error(stream: &mut TcpStream, req: &Resp, msg: &str) {
+    let resp = redis::parse::RespData::Error(String::from(msg));
+    match stream.write(format!("{}\r\n", resp.to_string()).as_bytes()) {
+        Ok(size) => {
+            println!("size: {}", size);
+        }
+        Err(e) => {
+            println!("error: {}", e);
+        }
+    };
+}
+
+fn handle_request(persistence: &State, stream: &mut TcpStream, req: &Resp) {
     match &req.data {
-        resp::resp::RespData::Array(vals) => match vals.get(0).unwrap() {
-            resp::resp::RespData::BulkString(command) => match command.to_lowercase().as_str() {
+        redis::parse::RespData::Array(vals) => match vals.get(0).unwrap() {
+            redis::parse::RespData::BulkString(command) => match command.to_lowercase().as_str() {
                 "ping" => handle_ping(stream),
                 "echo" => handle_echo(stream, vals.get(1).unwrap()),
                 "set" => handle_set(persistence, stream, vals),
                 "get" => handle_get(persistence, stream, vals),
                 "info" => handle_info(persistence, stream, vals),
-                _ => panic!("Unexpected command"),
+                _ => handle_error(stream, req, "Unexpected command"),
             },
-            _ => panic!("Unexpected data type"),
+            _ => handle_error(stream, req, "Unexpected data type"),
         },
-        _ => panic!("Unexpected data type"),
+        _ => handle_error(stream, req, "Unexpected data type"),
     }
 }
 
-fn handle_connection(mut persistence: &Persistence, mut stream: TcpStream) {
+fn handle_connection(mut persistence: &State, mut stream: TcpStream) {
     loop {
         let mut buf = [0; 1028];
 
@@ -174,25 +197,30 @@ fn handle_connection(mut persistence: &Persistence, mut stream: TcpStream) {
 }
 
 fn main() {
-    let persist: PersistenceArc = Arc::new(Mutex::new(HashMap::new()));
-
-    println!("Logs from your program will appear here!");
-
     let args: Vec<String> = env::args().collect();
 
-    let mut port = 6379;
+    let mut server = redis::server::Info::default();
 
     for (i, arg) in args.iter().enumerate() {
         match arg.as_str() {
             "--port" => {
-                port = args.get(i + 1).unwrap().parse::<u16>().unwrap();
+                server.port = args.get(i + 1).unwrap().parse::<u16>().unwrap();
+            }
+            "--replicaof" => {
+                let master_host = args.get(i + 1).unwrap();
+                let master_port = args.get(i + 2).unwrap().parse::<u16>().unwrap();
+                server.role = redis::server::Role::Slave(master_host.to_string(), master_port);
             }
             _ => {}
         }
     }
 
-    let listener = TcpListener::bind(format!("127.0.0.1:{}", port)).unwrap();
+    let persist: PersistenceArc = Arc::new(State {
+        persisted: Mutex::new(HashMap::new()),
+        info: Mutex::new(server),
+    });
 
+    let listener = TcpListener::bind(format!("127.0.0.1:{}", Arc::clone(&persist).info.lock().unwrap().port)).unwrap();
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
