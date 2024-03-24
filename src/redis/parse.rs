@@ -54,9 +54,9 @@ impl fmt::Display for RespData {
                 let mut result = String::new();
                 result.push_str(&format!("{}{}\r\n", <RespType as Into<&str>>::into(RespType::Array), a.len()));
                 for data in a {
-                    result.push_str(&format!("{}", data));
+                    result.push_str(&format!("{}\r\n", data));
                 }
-                write!(f, "{}\r\n", result)
+                write!(f, "{}", result)
             }
         }
     }

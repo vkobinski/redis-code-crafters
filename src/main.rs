@@ -121,11 +121,7 @@ fn handle_get(persistence: &State, stream: &mut TcpStream, vals: &[redis::parse:
     }
 }
 
-fn handle_info(
-    persistence: &State,
-    stream: &mut TcpStream,
-    vals: &[redis::parse::RespData],
-) {
+fn handle_info(persistence: &State, stream: &mut TcpStream, vals: &[redis::parse::RespData]) {
     match vals.get(1).unwrap() {
         redis::parse::RespData::BulkString(val) => match val.as_str() {
             "replication" => {
@@ -158,6 +154,17 @@ fn handle_error(stream: &mut TcpStream, req: &Resp, msg: &str) {
     };
 }
 
+fn handle_replconf(_persistence: &State, stream: &mut TcpStream, _vals: &[redis::parse::RespData]) {
+    match stream.write("+OK\r\n".as_bytes()) {
+        Ok(size) => {
+            println!("size: {}", size);
+        }
+        Err(e) => {
+            println!("error: {}", e);
+        }
+    };
+}
+
 fn handle_request(persistence: &State, stream: &mut TcpStream, req: &Resp) {
     match &req.data {
         redis::parse::RespData::Array(vals) => match vals.get(0).unwrap() {
@@ -167,6 +174,7 @@ fn handle_request(persistence: &State, stream: &mut TcpStream, req: &Resp) {
                 "set" => handle_set(persistence, stream, vals),
                 "get" => handle_get(persistence, stream, vals),
                 "info" => handle_info(persistence, stream, vals),
+                "replconf" => handle_replconf(persistence, stream, vals),
                 _ => handle_error(stream, req, "Unexpected command"),
             },
             _ => handle_error(stream, req, "Unexpected data type"),
@@ -221,7 +229,11 @@ fn main() {
         info: Mutex::new(server),
     });
 
-    let listener = TcpListener::bind(format!("127.0.0.1:{}", Arc::clone(&persist).info.lock().unwrap().port)).unwrap();
+    let listener = TcpListener::bind(format!(
+        "127.0.0.1:{}",
+        Arc::clone(&persist).info.lock().unwrap().port
+    ))
+    .unwrap();
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
