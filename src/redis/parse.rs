@@ -1,4 +1,4 @@
-use std::{fmt};
+use std::fmt;
 
 #[derive(Debug)]
 pub enum RespType {
@@ -46,9 +46,9 @@ pub enum RespData {
 impl fmt::Display for RespData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            RespData::SimpleString(s) => write!(f, "{}{}", <RespType as Into<&str>>::into(RespType::SimpleString), s),
-            RespData::Error(e) => write!(f, "{}{}", <RespType as Into<&str>>::into(RespType::Error), e),
-            RespData::Integer(i) => write!(f, "{}{}", <RespType as Into<&str>>::into(RespType::Integer), i),
+            RespData::SimpleString(s) => write!(f, "{}{}\r\n", <RespType as Into<&str>>::into(RespType::SimpleString), s),
+            RespData::Error(e) => write!(f, "{}{}\r\n", <RespType as Into<&str>>::into(RespType::Error), e),
+            RespData::Integer(i) => write!(f, "{}{}\r\n", <RespType as Into<&str>>::into(RespType::Integer), i),
             RespData::BulkString(b) => write!(f, "{}{}\r\n{}", <RespType as Into<&str>>::into(RespType::BulkString), b.len(), b),
             RespData::Array(a) => {
                 let mut result = String::new();

@@ -1,4 +1,3 @@
-use core::panic;
 use std::{
     io::{Read, Write},
     net::TcpStream,
@@ -115,7 +114,7 @@ impl Info {
         let mut buf = [0; 1028];
 
         match connection.read(&mut buf) {
-            Ok(size) => {
+            Ok(_size) => {
                 return Ok(0);
             }
             Err(e) => {
@@ -123,14 +122,14 @@ impl Info {
             }
         };
 
-        let received = String::from_utf8_lossy(&buf);
+        let _received = String::from_utf8_lossy(&buf);
 
         Ok(0)
     }
 
     fn ping(&self, connection: &mut TcpStream) -> Result<String, String> {
         match &self.role {
-            Role::Slave(slave) => {
+            Role::Slave(_slave) => {
                 let data = RespData::Array(vec![RespData::BulkString("ping".to_string())]);
                 match connection.write(format!("{}", data.to_string()).as_bytes()) {
                     Ok(_) => Ok("Server online".to_string()),

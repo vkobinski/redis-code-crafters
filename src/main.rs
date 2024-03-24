@@ -207,7 +207,7 @@ fn handle_request(persistence: &State, stream: &mut TcpStream, req: &Resp) {
     }
 }
 
-fn handle_connection(mut persistence: &State, mut stream: TcpStream) {
+fn handle_connection(persistence: &State, mut stream: TcpStream) {
     loop {
         let mut buf = [0; 1028];
 
