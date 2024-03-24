@@ -200,7 +200,7 @@ fn handle_connection(mut persistence: &State, mut stream: TcpStream) {
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    let mut server = redis::server::Info::default();
+    let mut server: Info = redis::server::Info::default();
 
     for (i, arg) in args.iter().enumerate() {
         match arg.as_str() {
@@ -210,7 +210,7 @@ fn main() {
             "--replicaof" => {
                 let master_host = args.get(i + 1).unwrap();
                 let master_port = args.get(i + 2).unwrap().parse::<u16>().unwrap();
-                server.role = redis::server::Role::Slave(master_host.to_string(), master_port);
+                server.slave(master_host.to_string(), master_port);
             }
             _ => {}
         }

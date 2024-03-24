@@ -1,4 +1,6 @@
-use super::parse::{Resp, RespData};
+use std::{fmt::format, io::Write, net::TcpStream};
+
+use super::parse::RespData;
 
 #[derive(Clone)]
 pub enum Role {
@@ -50,15 +52,34 @@ impl Default for Info {
 
 impl Info {
 
-    pub fn get_info(&self) -> RespData {
-        let mut fields: Vec<RespData> = vec!();
+    pub fn slave(&mut self, host: String, port: u16) {
 
-        fields.push(RespData::BulkString(self.role.clone().into()));
-        fields.push(RespData::BulkString(self.port.to_string()));
+        println!("{}:{}", host, port);
 
-        RespData::Array(fields)
+        self.role = Role::Slave(host, port);
+        self.ping().unwrap();
 
     }
+
+   fn ping(&self) -> Result<String, String> {
+
+        match &self.role {
+            Role::Slave(host, port) => {
+                let mut connection = TcpStream::connect(format!("{}:{}", host, port)).unwrap();
+                let test = RespData::BulkString("ping".to_string());
+                let data = RespData::Array(vec!(RespData::BulkString("ping".to_string())));
+                println!("{}", data);
+                match connection.write(format!("{}", data.to_string()).as_bytes()) {
+                    Ok(_) => Ok("Server online".to_string()),
+                    Err(_) => Err("Could not ping server!".to_string()),
+                }
+
+            },
+            Role::Master(_, _) => Err("Master can't ping!".to_string()),
+        }
+
+
+   }
 
     pub fn replication(&self) -> RespData {
         let mut fields: Vec<RespData> = vec!();
