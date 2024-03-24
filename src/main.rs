@@ -1,11 +1,14 @@
 mod redis;
 
 use std::collections::HashMap;
+use std::fmt::format;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::num::ParseIntError;
 use std::sync::{Arc, Mutex};
 use std::{env, thread};
 
+use bytes::Bytes;
 use redis::server::Info;
 
 use crate::redis::parse::Resp;
@@ -186,6 +189,22 @@ fn handle_psync(persistence: &State, stream: &mut TcpStream, _vals: &[redis::par
             println!("error: {}", e);
         }
     }
+
+    let empty_rdb = "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2";
+
+    let hex: Result<Vec<u8>, ParseIntError> = (0..empty_rdb.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&empty_rdb[i..i + 2], 16))
+        .collect();
+
+    let res = hex.unwrap();
+
+    let size = format!("${}\r\n", res.len());
+
+    stream.write(size.as_bytes()).unwrap();
+    stream.write(&res).unwrap();
+
+
 }
 
 fn handle_request(persistence: &State, stream: &mut TcpStream, req: &Resp) {
