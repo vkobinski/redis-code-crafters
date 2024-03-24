@@ -142,7 +142,7 @@ fn handle_info(persistence: &State, stream: &mut TcpStream, vals: &[redis::parse
     }
 }
 
-fn handle_error(stream: &mut TcpStream, req: &Resp, msg: &str) {
+fn handle_error(stream: &mut TcpStream, msg: &str) {
     let resp = redis::parse::RespData::Error(String::from(msg));
     match stream.write(format!("{}\r\n", resp.to_string()).as_bytes()) {
         Ok(size) => {
@@ -165,6 +165,29 @@ fn handle_replconf(_persistence: &State, stream: &mut TcpStream, _vals: &[redis:
     };
 }
 
+// +FULLRESYNC <REPL_ID> 0\r\n
+fn handle_psync(persistence: &State, stream: &mut TcpStream, _vals: &[redis::parse::RespData]) {
+    let role = &persistence.info.lock().unwrap().role;
+
+    let (rep_id, offset) = match role {
+        redis::server::Role::Master(master) => (&master.replication_id, master.offset),
+        redis::server::Role::Slave(_) => {
+            handle_error(stream, "Slave can't handle PSYNC");
+            return;
+        }
+    };
+
+    let send = redis::parse::RespData::SimpleString(format!("FULLRESYNC {} {}", rep_id, offset));
+    match stream.write(send.to_string().as_bytes()) {
+        Ok(size) => {
+            println!("size: {}", size);
+        }
+        Err(e) => {
+            println!("error: {}", e);
+        }
+    }
+}
+
 fn handle_request(persistence: &State, stream: &mut TcpStream, req: &Resp) {
     match &req.data {
         redis::parse::RespData::Array(vals) => match vals.get(0).unwrap() {
@@ -175,11 +198,12 @@ fn handle_request(persistence: &State, stream: &mut TcpStream, req: &Resp) {
                 "get" => handle_get(persistence, stream, vals),
                 "info" => handle_info(persistence, stream, vals),
                 "replconf" => handle_replconf(persistence, stream, vals),
-                _ => handle_error(stream, req, "Unexpected command"),
+                "psync" => handle_psync(persistence, stream, vals),
+                _ => handle_error(stream, "Unexpected command"),
             },
-            _ => handle_error(stream, req, "Unexpected data type"),
+            _ => handle_error(stream, "Unexpected data type"),
         },
-        _ => handle_error(stream, req, "Unexpected data type"),
+        _ => handle_error(stream, "Unexpected data type"),
     }
 }
 

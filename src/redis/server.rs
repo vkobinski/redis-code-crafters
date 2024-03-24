@@ -1,17 +1,20 @@
 use core::panic;
-use std::{fmt::format, io::{Read, Write}, net::TcpStream};
+use std::{
+    io::{Read, Write},
+    net::TcpStream,
+};
 
 use super::parse::RespData;
 
 #[derive(Clone)]
-struct Master {
+pub struct Master {
     pub replication_id: String,
     pub offset: u64,
     pub slaves_ports: Vec<u16>,
 }
 
 #[derive(Clone)]
-struct Slave {
+pub struct Slave {
     pub master_host: String,
     pub master_port: u16,
 }
@@ -75,7 +78,6 @@ impl Default for Info {
 
 impl Info {
     pub fn slave(&mut self, host: String, port: u16) {
-
         let mut connection = TcpStream::connect(format!("{}:{}", host.to_string(), port)).unwrap();
 
         self.role = Role::Slave(Slave {
@@ -83,34 +85,38 @@ impl Info {
             master_port: port,
         });
 
-
         self.ping(&mut connection).unwrap();
 
-        self.replconf(&mut connection, vec!("listening-port", &self.port.to_string())).unwrap();
-        self.replconf(&mut connection, vec!("capa", "psync2")).unwrap();
-
+        self.replconf(
+            &mut connection,
+            vec!["REPLCONF", "listening-port", &self.port.to_string()],
+        )
+        .unwrap();
+        self.replconf(&mut connection, vec!["REPLCONF", "capa", "psync2"])
+            .unwrap();
+        self.replconf(&mut connection, vec!["PSYNC", "?", "-1"])
+            .unwrap();
     }
 
-    fn replconf(&self, connection: &mut TcpStream, args: Vec<&str>) -> Result<usize, std::io::Error> {
-
-        let mut fields: Vec<RespData> = vec!();
-        fields.push(RespData::BulkString("REPLCONF".to_string()));
+    fn replconf(
+        &self,
+        connection: &mut TcpStream,
+        args: Vec<&str>,
+    ) -> Result<usize, std::io::Error> {
+        let mut fields: Vec<RespData> = vec![];
 
         for arg in args.into_iter() {
             fields.push(RespData::BulkString(arg.to_string()));
-        };
+        }
 
         let send = RespData::Array(fields);
-        println!("{}",send.to_string());
+        let _ = connection.write(send.to_string().as_bytes());
 
         let mut buf = [0; 1028];
 
         match connection.read(&mut buf) {
             Ok(size) => {
-                if size <= 0 {
-                    panic!();
-                }
-                println!("Received bytes: {}", size);
+                return Ok(0);
             }
             Err(e) => {
                 println!("error: {}", e);
@@ -119,7 +125,7 @@ impl Info {
 
         let received = String::from_utf8_lossy(&buf);
 
-        connection.write(send.to_string().as_bytes())
+        Ok(0)
     }
 
     fn ping(&self, connection: &mut TcpStream) -> Result<String, String> {
