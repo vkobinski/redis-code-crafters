@@ -1,8 +1,15 @@
 use std::{
-    collections::HashMap, io::Write, net::TcpStream, num::ParseIntError, sync::{Arc, Mutex}
+    collections::HashMap,
+    io::Write,
+    net::TcpStream,
+    num::ParseIntError,
+    sync::{Arc, Mutex},
 };
 
-use super::{parse::{Resp, RespData}, server::{Info, Role}};
+use super::{
+    parse::{Resp, RespData},
+    server::{Info, Role},
+};
 
 pub struct PersistedValue {
     pub data: RespData,
@@ -31,7 +38,6 @@ pub fn write_stream(stream: &mut TcpStream, content: &[u8]) {
 
 pub fn handle_ping(stream: &mut TcpStream) {
     write_stream(stream, b"+PONG\r\n");
-
 }
 
 pub fn handle_echo(stream: &mut TcpStream, data: &RespData) {
@@ -123,7 +129,10 @@ pub fn handle_psync(persistence: &State, stream: &mut TcpStream, _vals: &[RespDa
         }
     };
 
-    write_stream(stream, format!("FULLRESYNC {} {}", rep_id, offset).as_bytes());
+    write_stream(
+        stream,
+        format!("FULLRESYNC {} {}", rep_id, offset).as_bytes(),
+    );
 
     let empty_rdb = "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2";
 
@@ -138,7 +147,6 @@ pub fn handle_psync(persistence: &State, stream: &mut TcpStream, _vals: &[RespDa
 
     write_stream(stream, size.as_bytes());
     write_stream(stream, &res);
-
 }
 
 pub fn handle_request(persistence: &State, stream: &mut TcpStream, req: &Resp) {
