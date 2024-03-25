@@ -5,20 +5,20 @@ use std::{
 
 use super::parse::RespData;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Master {
     pub replication_id: String,
     pub offset: u64,
-    pub slaves_ports: Vec<u16>,
+    pub slaves_ports: Vec<String>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Slave {
     pub master_host: String,
     pub master_port: u16,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Role {
     Master(Master),
     Slave(Slave),
@@ -61,6 +61,7 @@ impl Into<String> for Role {
     }
 }
 
+#[derive(Debug)]
 pub struct Info {
     pub role: Role,
     pub port: u16,
@@ -95,6 +96,7 @@ impl Info {
             .unwrap();
         self.replconf(&mut connection, vec!["PSYNC", "?", "-1"])
             .unwrap();
+
     }
 
     fn replconf(

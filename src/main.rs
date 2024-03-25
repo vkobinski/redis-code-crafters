@@ -56,6 +56,7 @@ fn main() {
     let persist: PersistenceArc = Arc::new(State {
         persisted: Mutex::new(HashMap::new()),
         info: Mutex::new(server),
+        can_send: Mutex::new(false),
     });
 
     let port = Arc::clone(&persist).info.lock().unwrap().port;

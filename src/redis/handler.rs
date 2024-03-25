@@ -1,9 +1,11 @@
 use std::{
+    borrow::BorrowMut,
     collections::HashMap,
     io::Write,
-    net::TcpStream,
+    net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream},
     num::ParseIntError,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use super::{
@@ -20,6 +22,7 @@ pub struct PersistedValue {
 pub struct State {
     pub persisted: Persistence,
     pub info: Mutex<Info>,
+    pub can_send: Mutex<bool>,
 }
 
 pub type PersistenceArc = Arc<State>;
@@ -44,9 +47,40 @@ pub fn handle_echo(stream: &mut TcpStream, data: &RespData) {
     write_stream(stream, format!("{}\r\n", data).as_bytes());
 }
 
+pub fn propagate(persistence: &State, vals: &[RespData]) {
+    let info = persistence.info.lock().unwrap();
+
+    match &info.role {
+        Role::Master(master) => {
+            for slave in &master.slaves_ports {
+                println!("PORT: {}", slave);
+                println!("INFO: {:?}", info);
+
+                match TcpStream::connect(format!("127.0.0.1:{}", slave)) {
+                    Ok(mut conn) => {
+                        println!("PASSOU");
+
+                        let send = RespData::Array(vals.to_vec()).to_string();
+                        println!("MASTER: {}", send);
+
+                        conn.write(RespData::Array(vals.to_vec()).to_string().as_bytes())
+                            .unwrap();
+                    }
+                    Err(e) => {
+                        panic!("AAAAAAAAA");
+                    }
+                }
+            }
+        }
+        Role::Slave(_) => return,
+    }
+}
+
 pub fn handle_set(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
     let key = vals.get(1).unwrap().to_string();
     let value = vals.get(2).unwrap();
+
+    propagate(persistence, vals);
 
     let has_expiry = match vals.get(3) {
         Some(val) => match val {
@@ -85,6 +119,7 @@ pub fn handle_get(persistence: &State, stream: &mut TcpStream, vals: &[RespData]
     if value.expiry > 0 {
         if now.duration_since(value.timestamp).unwrap().as_millis() > value.expiry {
             write_stream(stream, b"$-1\r\n");
+            return;
         }
     }
 
@@ -114,7 +149,31 @@ pub fn handle_error(stream: &mut TcpStream, msg: &str) {
     write_stream(stream, format!("{}\r\n", resp.to_string()).as_bytes());
 }
 
-pub fn handle_replconf(_persistence: &State, stream: &mut TcpStream, _vals: &[RespData]) {
+pub fn handle_replconf(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
+    let addr = stream
+        .peer_addr()
+        .unwrap()
+        .to_string()
+        .split(":")
+        .next()
+        .unwrap()
+        .to_string();
+    println!("REPLCONF: {:?}", vals);
+    println!("ADDR: {:?}", stream.peer_addr());
+    if let RespData::BulkString(command) = &vals[1] {
+        match command.as_str() {
+            "listening-port" => {
+                if let Role::Master(master) = persistence.info.lock().unwrap().role.borrow_mut() {
+                    if let Some(RespData::BulkString(v)) = vals.get(2) {
+                        master.slaves_ports.push(v.parse().unwrap());
+                    }
+                } else {
+                    handle_error(stream, "Slave can't treat REPLCONF");
+                }
+            }
+            _ => {}
+        };
+    };
     write_stream(stream, b"+OK\r\n");
 }
 
@@ -131,7 +190,9 @@ pub fn handle_psync(persistence: &State, stream: &mut TcpStream, _vals: &[RespDa
 
     write_stream(
         stream,
-        format!("FULLRESYNC {} {}", rep_id, offset).as_bytes(),
+        RespData::SimpleString(format!("FULLRESYNC {} {}", rep_id, offset))
+            .to_string()
+            .as_bytes(),
     );
 
     let empty_rdb = "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2";
@@ -147,6 +208,10 @@ pub fn handle_psync(persistence: &State, stream: &mut TcpStream, _vals: &[RespDa
 
     write_stream(stream, size.as_bytes());
     write_stream(stream, &res);
+
+    let mut can_send = persistence.can_send.lock().unwrap();
+    *can_send = true;
+
 }
 
 pub fn handle_request(persistence: &State, stream: &mut TcpStream, req: &Resp) {
