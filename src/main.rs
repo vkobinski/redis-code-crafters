@@ -3,7 +3,7 @@ mod redis;
 use std::collections::HashMap;
 use std::io::Read;
 use std::net::{TcpListener, TcpStream};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::{env, thread};
 
 use redis::handler::{handle_request, PersistenceArc, State};
@@ -55,10 +55,10 @@ fn main() {
 
     let persist: PersistenceArc = Arc::new(State {
         persisted: Mutex::new(HashMap::new()),
-        info: Mutex::new(server),
+        info: RwLock::new(server),
     });
 
-    let port = Arc::clone(&persist).info.lock().unwrap().port;
+    let port = Arc::clone(&persist).info.read().unwrap().port;
 
     let listener = TcpListener::bind(format!(
         "127.0.0.1:{}",

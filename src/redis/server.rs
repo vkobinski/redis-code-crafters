@@ -1,5 +1,8 @@
 use std::{
-    collections::HashMap, fmt::format, io::{Read, Write}, net::{TcpListener, TcpStream}, sync::{Arc, Mutex}
+    collections::HashMap,
+    io::{Read, Write},
+    net::TcpStream,
+    sync::{Arc, Mutex},
 };
 
 use super::parse::RespData;
@@ -9,7 +12,7 @@ pub struct Master {
     pub replication_id: String,
     pub offset: u64,
     pub slave_ports: Vec<u16>,
-    pub slave_stream: HashMap<u16, Arc<Mutex<TcpStream>>>
+    pub slave_stream: HashMap<u16, Arc<Mutex<TcpStream>>>,
 }
 
 #[derive(Clone, Debug)]
@@ -90,20 +93,13 @@ impl Info {
 
         self.replconf(
             &mut connection,
-            vec!["REPLCONF", "listening-port", &self.port.to_string()]
+            vec!["REPLCONF", "listening-port", &self.port.to_string()],
         )
         .unwrap();
-        self.replconf(
-            &mut connection,
-            vec!["REPLCONF", "capa", "psync2"]
-        )
-        .unwrap();
-        self.replconf(
-            &mut connection,
-            vec!["PSYNC", "?", "-1"]
-        )
-        .unwrap();
-
+        self.replconf(&mut connection, vec!["REPLCONF", "capa", "psync2"])
+            .unwrap();
+        self.replconf(&mut connection, vec!["PSYNC", "?", "-1"])
+            .unwrap();
     }
 
     fn replconf(
@@ -136,7 +132,17 @@ impl Info {
             Role::Slave(_slave) => {
                 let data = RespData::Array(vec![RespData::BulkString("ping".to_string())]);
                 match connection.write(format!("{}", data.to_string()).as_bytes()) {
-                    Ok(_) => Ok("Server online".to_string()),
+                    Ok(_) => {
+                        let mut buf = [0; 2024];
+
+                        match connection.read(&mut buf) {
+                            Ok(size) => {
+                                let received = String::from_utf8_lossy(&buf).to_string();
+                            }
+                            _ => {}
+                        }
+                        Ok("Server online".to_string())
+                    }
                     Err(_) => Err("Could not ping server!".to_string()),
                 }
             }
