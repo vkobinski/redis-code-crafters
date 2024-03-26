@@ -2,10 +2,9 @@ use std::{
     borrow::BorrowMut,
     collections::HashMap,
     io::Write,
-    net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream},
+    net::TcpStream,
     num::ParseIntError,
-    sync::{Arc, Mutex},
-    time::Duration,
+    sync::{Arc, Mutex}, thread,
 };
 
 use super::{
@@ -22,7 +21,6 @@ pub struct PersistedValue {
 pub struct State {
     pub persisted: Persistence,
     pub info: Mutex<Info>,
-    pub can_send: Mutex<bool>,
 }
 
 pub type PersistenceArc = Arc<State>;
@@ -50,35 +48,30 @@ pub fn handle_echo(stream: &mut TcpStream, data: &RespData) {
 pub fn propagate(persistence: &State, vals: &[RespData]) {
     let info = persistence.info.lock().unwrap();
 
+    println!("{:?}", info);
+
     match &info.role {
         Role::Master(master) => {
-            for slave in &master.slaves_ports {
-                println!("PORT: {}", slave);
-                println!("INFO: {:?}", info);
+            for slave in &master.slave_ports {
 
-                match TcpStream::connect(format!("127.0.0.1:{}", slave)) {
-                    Ok(mut conn) => {
-                        println!("PASSOU");
+                //let mut conn = TcpStream::connect(format!("127.0.0.1:{}", slave)).unwrap();
+                let mut conn = master.slave_stream.get(&slave).unwrap().lock().unwrap();
+                let send = RespData::Array(vals.to_vec()).to_string();
+                println!("MASTER: {}", send);
 
-                        let send = RespData::Array(vals.to_vec()).to_string();
-                        println!("MASTER: {}", send);
-
-                        conn.write(RespData::Array(vals.to_vec()).to_string().as_bytes())
-                            .unwrap();
-                    }
-                    Err(e) => {
-                        panic!("AAAAAAAAA");
-                    }
-                }
+                conn.write(RespData::Array(vals.to_vec()).to_string().as_bytes())
+                    .unwrap();
             }
         }
         Role::Slave(_) => return,
-    }
+    };
 }
 
 pub fn handle_set(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
     let key = vals.get(1).unwrap().to_string();
     let value = vals.get(2).unwrap();
+
+    println!("SET");
 
     propagate(persistence, vals);
 
@@ -150,22 +143,19 @@ pub fn handle_error(stream: &mut TcpStream, msg: &str) {
 }
 
 pub fn handle_replconf(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
-    let addr = stream
-        .peer_addr()
-        .unwrap()
-        .to_string()
-        .split(":")
-        .next()
-        .unwrap()
-        .to_string();
     println!("REPLCONF: {:?}", vals);
     println!("ADDR: {:?}", stream.peer_addr());
+
+    let port_addr = stream.peer_addr().unwrap().port();
+
     if let RespData::BulkString(command) = &vals[1] {
         match command.as_str() {
             "listening-port" => {
                 if let Role::Master(master) = persistence.info.lock().unwrap().role.borrow_mut() {
                     if let Some(RespData::BulkString(v)) = vals.get(2) {
-                        master.slaves_ports.push(v.parse().unwrap());
+                        //master.slaves_ports.push(v.parse().unwrap());
+                        master.slave_ports.push(port_addr);
+                        master.slave_stream.insert(port_addr, Arc::new(Mutex::new(stream.try_clone().unwrap())));
                     }
                 } else {
                     handle_error(stream, "Slave can't treat REPLCONF");
@@ -208,13 +198,11 @@ pub fn handle_psync(persistence: &State, stream: &mut TcpStream, _vals: &[RespDa
 
     write_stream(stream, size.as_bytes());
     write_stream(stream, &res);
-
-    let mut can_send = persistence.can_send.lock().unwrap();
-    *can_send = true;
-
 }
 
 pub fn handle_request(persistence: &State, stream: &mut TcpStream, req: &Resp) {
+    println!("REQ: {:?}", req);
+
     match &req.data {
         RespData::Array(vals) => match vals.get(0).unwrap() {
             RespData::BulkString(command) => match command.to_lowercase().as_str() {

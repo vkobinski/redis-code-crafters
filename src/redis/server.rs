@@ -1,6 +1,5 @@
 use std::{
-    io::{Read, Write},
-    net::TcpStream,
+    collections::HashMap, fmt::format, io::{Read, Write}, net::{TcpListener, TcpStream}, sync::{Arc, Mutex}
 };
 
 use super::parse::RespData;
@@ -9,7 +8,8 @@ use super::parse::RespData;
 pub struct Master {
     pub replication_id: String,
     pub offset: u64,
-    pub slaves_ports: Vec<String>,
+    pub slave_ports: Vec<u16>,
+    pub slave_stream: HashMap<u16, Arc<Mutex<TcpStream>>>
 }
 
 #[derive(Clone, Debug)]
@@ -47,7 +47,8 @@ impl Default for Role {
         Role::Master(Master {
             replication_id: String::from("8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"),
             offset: 0,
-            slaves_ports: vec![],
+            slave_ports: vec![],
+            slave_stream: HashMap::new(),
         })
     }
 }
@@ -89,13 +90,19 @@ impl Info {
 
         self.replconf(
             &mut connection,
-            vec!["REPLCONF", "listening-port", &self.port.to_string()],
+            vec!["REPLCONF", "listening-port", &self.port.to_string()]
         )
         .unwrap();
-        self.replconf(&mut connection, vec!["REPLCONF", "capa", "psync2"])
-            .unwrap();
-        self.replconf(&mut connection, vec!["PSYNC", "?", "-1"])
-            .unwrap();
+        self.replconf(
+            &mut connection,
+            vec!["REPLCONF", "capa", "psync2"]
+        )
+        .unwrap();
+        self.replconf(
+            &mut connection,
+            vec!["PSYNC", "?", "-1"]
+        )
+        .unwrap();
 
     }
 
@@ -113,20 +120,15 @@ impl Info {
         let send = RespData::Array(fields);
         let _ = connection.write(send.to_string().as_bytes());
 
-        let mut buf = [0; 1028];
+        let mut buf = [0; 2024];
 
         match connection.read(&mut buf) {
-            Ok(_size) => {
-                return Ok(0);
+            Ok(size) => {
+                let received = String::from_utf8_lossy(&buf).to_string();
+                Ok(size)
             }
-            Err(e) => {
-                println!("error: {}", e);
-            }
-        };
-
-        let _received = String::from_utf8_lossy(&buf);
-
-        Ok(0)
+            Err(e) => Err(e),
+        }
     }
 
     fn ping(&self, connection: &mut TcpStream) -> Result<String, String> {
