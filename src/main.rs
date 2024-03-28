@@ -9,7 +9,7 @@ use std::{env, thread};
 use redis::handler::{handle_request, PersistenceArc, State};
 use redis::server::Info;
 
-use crate::redis::parse::Resp;
+use crate::redis::parse::{Resp, RespData};
 
 fn handle_connection(persistence: &State, mut stream: TcpStream) {
     loop {
@@ -34,6 +34,8 @@ fn handle_connection(persistence: &State, mut stream: TcpStream) {
 }
 
 fn handle_connection_slave(persistence: &State, stream: Arc<Mutex<TcpStream>>) {
+    println!("SLAVE HANDLING CONNECTIONS!");
+
     loop {
         let mut conn = stream.lock().unwrap();
 
@@ -46,7 +48,10 @@ fn handle_connection_slave(persistence: &State, stream: Arc<Mutex<TcpStream>>) {
                     }
                     let received = &String::from_utf8_lossy(&buf[..size]);
                     let req = Resp::parse(received.to_string()).unwrap();
-                    handle_request(persistence, &mut conn, &req);
+
+                    let mut stream = conn.try_clone().unwrap();
+                    handle_request(&persistence, &mut stream, &req);
+
                 }
                 Err(e) => {
                     println!("error: {}", e);
