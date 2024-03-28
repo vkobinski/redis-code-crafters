@@ -50,6 +50,7 @@ fn handle_connection_slave(persistence: &State, stream: Arc<Mutex<TcpStream>>) {
                     let req = Resp::parse(received.to_string()).unwrap();
 
                     let mut stream = conn.try_clone().unwrap();
+                    println!("Handling request");
                     handle_request(&persistence, &mut stream, &req);
 
                 }
