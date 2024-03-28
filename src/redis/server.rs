@@ -156,7 +156,7 @@ impl Info {
                                 return Ok(1);
                             }
                         }
-                        Err(e) => return Err(e),
+                        Err(e) => println!("error: {:?}", e),
                     }
                     return Ok(1);
                 }
