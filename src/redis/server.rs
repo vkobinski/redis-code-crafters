@@ -151,7 +151,7 @@ impl Info {
                     println!("RECEIVED FULLRESYNC");
                     match Self::read_from_stream(connection) {
                         Ok(received) => {
-                            if received.contains(&"REDIS") {
+                            if received.contains(&"REDIS0011") {
                                 return Ok(1);
                             }
                         }
