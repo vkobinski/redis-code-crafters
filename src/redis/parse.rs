@@ -48,6 +48,15 @@ pub enum RespData {
     RequestArray(Vec<RespData>),
 }
 
+impl PartialEq for RespData {
+    fn eq(&self, other: &Self) -> bool {
+        if self.inside_value() == other.inside_value() {
+            return true;
+        }
+        return false;
+    }
+}
+
 impl fmt::Display for RespData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

@@ -92,7 +92,6 @@ pub fn handle_set(persistence: &State, stream: &mut TcpStream, vals: &[RespData]
         write_stream(stream, format!("+OK\r\n").as_bytes());
         propagate(persistence, vals);
     }
-
 }
 
 pub fn handle_get(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
@@ -140,8 +139,18 @@ pub fn handle_error(stream: &mut TcpStream, msg: &str) {
 pub fn handle_replconf(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
     let port_addr = stream.peer_addr().unwrap().port();
 
+    println!("REPLCONF");
+
     if let RespData::BulkString(command) = &vals[1] {
-        match command.as_str() {
+        match command.to_lowercase().as_str() {
+            "getack" => {
+                let response = RespData::Array(vec![
+                    RespData::BulkString("REPLCONF".to_string()),
+                    RespData::BulkString("ACK".to_string()),
+                    RespData::BulkString("0".to_string()),
+                ]);
+                stream.write(response.to_string().as_bytes()).unwrap();
+            },
             "listening-port" => {
                 if let Role::Master(master) = persistence.info.write().unwrap().role.borrow_mut() {
                     if let Some(RespData::BulkString(_v)) = vals.get(2) {

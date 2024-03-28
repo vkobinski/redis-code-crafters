@@ -147,27 +147,65 @@ impl Info {
 
         match Self::read_from_stream(connection) {
             Ok(received) => {
-
                 let resp = Resp::parse(received).unwrap();
 
                 let mut is_working = false;
 
                 match resp.data {
-                    RespData::RequestArray(array) => {
-                        for req in array {
+                    RespData::RequestArray(mut array) => {
+                        for i in 0..2 {
+                            let req = array.get(i);
+
                             match req {
-                                RespData::SimpleString(s) => {
-                                    if s.contains(&"FULLRESYNC") {
-                                        is_working = true;
+                                Some(req) => match req {
+                                    RespData::SimpleString(s) => {
+                                        if s.contains(&"FULLRESYNC") {
+                                            is_working = true;
+                                        }
                                     }
-                                }
-                                RespData::BulkString(s) => {
-                                    if s.contains(&"REDIS0011") && is_working {
-                                        return Ok(1);
+                                    RespData::BulkString(s) => {
+                                        if s.contains(&"REDIS0011") && is_working {
+                                            return Ok(1);
+                                        }
+                                        is_working = false;
                                     }
-                                    is_working = false;
+                                    //  RespData::Array(arr) => {
+                                    //match (arr.get(0), arr.get(1), arr.get(2)) {
+                                    //(Some(class), Some(comm), Some(idx)) => {
+                                    //if class
+                                    //== &RespData::BulkString("REPLCONF".to_string())
+                                    //&& comm
+                                    //== &RespData::BulkString(
+                                    //"GETACK".to_string(),
+                                    //)
+                                    //&& idx == &RespData::BulkString("*".to_string())
+                                    //{
+                                    //let response = RespData::Array(vec![
+                                    //RespData::BulkString(
+                                    //"REPLCONF".to_string(),
+                                    //),
+                                    //RespData::BulkString("ACK".to_string()),
+                                    //RespData::BulkString("0".to_string()),
+                                    //]);
+                                    //connection
+                                    //.write(response.to_string().as_bytes())
+                                    //.unwrap();
+                                    //is_working = true;
+                                    //} else {
+                                    //is_working = false;
+                                    //}
+                                    //}
+                                    //_ => {}
+                                    //}
+                                    //}
+                                    _ => {}
+                                },
+                                None => {
+                                    let par =
+                                        Resp::parse(Self::read_from_stream(connection).unwrap())
+                                            .unwrap();
+                                    array.push(par.data);
                                 }
-                                _ => {}
                             }
                         }
                     }
