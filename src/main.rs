@@ -78,9 +78,7 @@ fn handle_connection_slave(persistence: &Arc<State>, stream: Arc<Mutex<TcpStream
                                 let send_stream = Arc::clone(persistence);
                                 let mut stream = conn.try_clone().unwrap();
 
-                                thread::spawn(move || {
-                                    handle_request(&send_stream, &mut stream, &resp);
-                                });
+                                handle_request(&send_stream, &mut stream, &resp);
                             }
                         }
                         _ => {

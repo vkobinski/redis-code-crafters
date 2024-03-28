@@ -255,8 +255,8 @@ pub struct Resp {
 
 impl Resp {
     pub fn parse(serialized: String) -> Option<Resp> {
-
         let data_type = serialized.chars().next().map(RespType::from).unwrap();
+
         let data = RespData::parse(&serialized, &data_type).unwrap();
 
         Some(Resp { data_type, data })

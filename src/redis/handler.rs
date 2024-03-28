@@ -1,6 +1,7 @@
 use std::{
     borrow::BorrowMut,
     collections::HashMap,
+    io::Read,
     io::Write,
     net::TcpStream,
     num::ParseIntError,
@@ -139,18 +140,56 @@ pub fn handle_error(stream: &mut TcpStream, msg: &str) {
 pub fn handle_replconf(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
     let port_addr = stream.peer_addr().unwrap().port();
 
-    println!("REPLCONF");
-
     if let RespData::BulkString(command) = &vals[1] {
         match command.to_lowercase().as_str() {
             "getack" => {
-                let response = RespData::Array(vec![
-                    RespData::BulkString("REPLCONF".to_string()),
-                    RespData::BulkString("ACK".to_string()),
-                    RespData::BulkString("0".to_string()),
-                ]);
-                stream.write(response.to_string().as_bytes()).unwrap();
-            },
+                match persistence.info.write().unwrap().role.borrow_mut() {
+                    Role::Master(master) => {
+                        for slave in &master.slave_stream {
+                            let response = RespData::Array(vec![
+                                RespData::BulkString("REPLCONF".to_string()),
+                                RespData::BulkString("GETACK".to_string()),
+                                RespData::BulkString("*".to_string()),
+                            ]);
+
+                            let mut slave_stream = slave.1.lock().unwrap();
+
+                            slave_stream.write(response.to_string().as_bytes()).unwrap();
+
+                            let mut buf = [0; 2024];
+                            slave_stream.read(&mut buf).unwrap();
+
+                            let received = String::from_utf8_lossy(&buf).to_string();
+                            let parse = Resp::parse(received);
+
+                            match parse {
+                                Some(resp) => match resp.data {
+                                    RespData::Array(vals) => match vals.get(1).unwrap() {
+                                        RespData::BulkString(val) => {
+                                            let val_under = val.to_lowercase();
+                                            if val_under == "ack" {
+                                                let offset = vals.get(2).unwrap();
+                                            }
+                                        }
+                                        _ => {}
+                                    },
+                                    _ => {}
+                                },
+                                None => {}
+                            }
+                        }
+                    }
+                    Role::Slave(_) => {
+
+                        let response = RespData::Array(vec![
+                            RespData::BulkString("REPLCONF".to_string()),
+                            RespData::BulkString("ACK".to_string()),
+                            RespData::BulkString("0".to_string()),
+                        ]);
+                        stream.write(response.to_string().as_bytes()).unwrap();
+                    }
+                };
+            }
             "listening-port" => {
                 if let Role::Master(master) = persistence.info.write().unwrap().role.borrow_mut() {
                     if let Some(RespData::BulkString(_v)) = vals.get(2) {
@@ -158,15 +197,17 @@ pub fn handle_replconf(persistence: &State, stream: &mut TcpStream, vals: &[Resp
                         master
                             .slave_stream
                             .insert(port_addr, Arc::new(Mutex::new(stream.try_clone().unwrap())));
+                        write_stream(stream, b"+OK\r\n");
                     }
                 } else {
                     handle_error(stream, "Slave can't treat REPLCONF");
                 }
             }
-            _ => {}
+            _ => {
+                write_stream(stream, b"+OK\r\n");
+            }
         };
     };
-    write_stream(stream, b"+OK\r\n");
 }
 
 pub fn handle_psync(persistence: &State, stream: &mut TcpStream, _vals: &[RespData]) {
@@ -203,9 +244,6 @@ pub fn handle_psync(persistence: &State, stream: &mut TcpStream, _vals: &[RespDa
 }
 
 pub fn handle_request(persistence: &State, stream: &mut TcpStream, req: &Resp) {
-
-    println!("Request: {:?}", req.data);
-
     match &req.data {
         RespData::Array(vals) => match vals.get(0).unwrap() {
             RespData::BulkString(command) => match command.to_lowercase().as_str() {
