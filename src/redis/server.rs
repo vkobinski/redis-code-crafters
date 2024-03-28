@@ -142,7 +142,6 @@ impl Info {
         let send = RespData::Array(fields);
         let _ = connection.write(send.to_string().as_bytes());
 
-        Self::read_from_stream(connection).unwrap();
         Self::read_from_stream(connection)
     }
 
