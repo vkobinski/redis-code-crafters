@@ -1,7 +1,7 @@
 mod redis;
 
 use std::collections::HashMap;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex, RwLock};
 use std::{env, thread};
@@ -11,7 +11,6 @@ use redis::server::Info;
 
 use crate::redis::parse::Resp;
 
-
 fn handle_connection(persistence: &State, mut stream: TcpStream) {
     loop {
         let mut buf = [0; 1028];
@@ -19,7 +18,7 @@ fn handle_connection(persistence: &State, mut stream: TcpStream) {
         match stream.read(&mut buf) {
             Ok(size) => {
                 if size <= 0 {
-                    return;
+                    continue;
                 }
                 println!("Received bytes: {}", size);
             }
@@ -31,6 +30,30 @@ fn handle_connection(persistence: &State, mut stream: TcpStream) {
         let received = String::from_utf8_lossy(&buf);
         let req = Resp::parse(received.to_string()).expect("Could not parse request");
         handle_request(persistence, &mut stream, &req);
+    }
+}
+
+fn handle_connection_slave(persistence: &State, stream: Arc<Mutex<TcpStream>>) {
+    loop {
+        let mut conn = stream.lock().unwrap();
+
+        let mut buf = [0; 1028];
+        loop {
+            match conn.read(&mut buf) {
+                Ok(size) => {
+                    if size <= 0 {
+                        continue;
+                    }
+                    let received = &String::from_utf8_lossy(&buf[..size]);
+                    let req = Resp::parse(received.to_string()).unwrap();
+                    handle_request(persistence, &mut conn, &req);
+                }
+                Err(e) => {
+                    println!("error: {}", e);
+                    break;
+                }
+            };
+        }
     }
 }
 
@@ -60,11 +83,19 @@ fn main() {
 
     let port = Arc::clone(&persist).info.read().unwrap().port;
 
-    let listener = TcpListener::bind(format!(
-        "127.0.0.1:{}",
-        port
-    ))
-    .unwrap();
+    let listener = TcpListener::bind(format!("127.0.0.1:{}", port)).unwrap();
+
+    {
+        match persist.info.read().unwrap().as_slave() {
+            Some(slave) => {
+                let persist = Arc::clone(&persist);
+                thread::spawn(move || {
+                    handle_connection_slave(&persist, slave.stream);
+                });
+            }
+            None => {}
+        }
+    }
 
     for stream in listener.incoming() {
         match stream {

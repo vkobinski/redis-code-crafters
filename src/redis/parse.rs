@@ -123,6 +123,16 @@ impl RespData {
 
         Some(RespData::Array(array))
     }
+
+    pub fn inside_value(&self) -> Option<&str> {
+        match self {
+            RespData::SimpleString(s) => Some(s),
+            RespData::Error(e) => Some(e),
+            RespData::BulkString(b) => Some(b),
+            RespData::Array(_) => None,
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug)]

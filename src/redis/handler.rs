@@ -61,7 +61,8 @@ pub fn propagate(persistence: &State, vals: &[RespData]) {
 }
 
 pub fn handle_set(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
-    let key = vals.get(1).unwrap().to_string();
+    let key = vals.get(1).unwrap().inside_value().unwrap();
+    println!("SET KEY: {}", key);
     let value = vals.get(2).unwrap();
 
     let has_expiry = match vals.get(3) {
@@ -84,20 +85,53 @@ pub fn handle_set(persistence: &State, stream: &mut TcpStream, vals: &[RespData]
         expiry: has_expiry,
     };
 
-    {
-        let mut persist = persistence.persisted.lock().unwrap();
-        persist.insert(key, insert_val);
+    let mut persist = persistence.persisted.lock().unwrap();
+    persist.insert(key.to_string(), insert_val);
+
+    if persistence.info.read().unwrap().is_master() {
         write_stream(stream, format!("+OK\r\n").as_bytes());
+        propagate(persistence, vals);
     }
 
-    propagate(persistence, vals);
+}
+
+
+pub fn handle_set_slave(persistence: &State, vals: &[RespData]) {
+    let key = vals.get(1).unwrap().inside_value().unwrap();
+    println!("SET KEY: {}", key);
+    let value = vals.get(2).unwrap();
+
+    let has_expiry = match vals.get(3) {
+        Some(val) => match val {
+            RespData::BulkString(v) => match v.to_lowercase().as_str() {
+                "px" => match vals.get(4).unwrap() {
+                    RespData::BulkString(v) => v.parse::<u128>().unwrap(),
+                    _ => panic!(),
+                },
+                _ => 0,
+            },
+            _ => panic!(),
+        },
+        None => 0,
+    };
+
+    let insert_val = PersistedValue {
+        data: value.clone(),
+        timestamp: std::time::SystemTime::now(),
+        expiry: has_expiry,
+    };
+
+    let mut persist = persistence.persisted.lock().unwrap();
+    persist.insert(key.to_string(), insert_val);
+
 }
 
 pub fn handle_get(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
-    let key = vals.get(1).unwrap().to_string();
+    let key = vals.get(1).unwrap().inside_value().unwrap();
+    println!("KEY: {:?}", key);
 
     let persist = persistence.persisted.lock().unwrap();
-    let value = persist.get(&key).unwrap();
+    let value = persist.get(&key.to_string()).unwrap();
 
     let now = std::time::SystemTime::now();
 

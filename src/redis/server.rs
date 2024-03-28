@@ -3,6 +3,7 @@ use std::{
     io::{Read, Write},
     net::TcpStream,
     sync::{Arc, Mutex},
+    thread::scope,
 };
 
 use super::parse::RespData;
@@ -19,6 +20,7 @@ pub struct Master {
 pub struct Slave {
     pub master_host: String,
     pub master_port: u16,
+    pub stream: Arc<Mutex<TcpStream>>,
 }
 
 #[derive(Clone, Debug)]
@@ -87,6 +89,7 @@ impl Info {
         self.role = Role::Slave(Slave {
             master_host: host,
             master_port: port,
+            stream: Arc::new(Mutex::new(connection.try_clone().unwrap())),
         });
 
         self.ping(&mut connection).unwrap();
@@ -98,15 +101,38 @@ impl Info {
         .unwrap();
         self.replconf(&mut connection, vec!["REPLCONF", "capa", "psync2"])
             .unwrap();
-        self.replconf(&mut connection, vec!["PSYNC", "?", "-1"])
+        self.psync(&mut connection, vec!["PSYNC", "?", "-1"])
             .unwrap();
     }
 
-    fn replconf(
-        &self,
-        connection: &mut TcpStream,
-        args: Vec<&str>,
-    ) -> Result<usize, std::io::Error> {
+    pub fn is_master(&self) -> bool {
+        match self.role {
+            Role::Master(_) => true,
+            Role::Slave(_) => false,
+        }
+    }
+
+    pub fn as_slave(&self) -> Option<Slave> {
+        match self.role {
+            Role::Slave(ref slave) => Some(slave.clone()),
+            _ => None,
+        }
+    }
+
+    fn read_from_stream(connection: &mut TcpStream) -> Result<usize, std::io::Error> {
+        let mut buf = [0; 2024];
+
+        match connection.read(&mut buf) {
+            Ok(size) => {
+                let received = String::from_utf8_lossy(&buf).to_string();
+                println!("RECEIVED: {}", received);
+                Ok(size)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    fn psync(&self, connection: &mut TcpStream, args: Vec<&str>) -> Result<usize, std::io::Error> {
         let mut fields: Vec<RespData> = vec![];
 
         for arg in args.into_iter() {
@@ -116,15 +142,21 @@ impl Info {
         let send = RespData::Array(fields);
         let _ = connection.write(send.to_string().as_bytes());
 
-        let mut buf = [0; 2024];
+        Self::read_from_stream(connection).unwrap();
+        Self::read_from_stream(connection)
+    }
 
-        match connection.read(&mut buf) {
-            Ok(size) => {
-                let received = String::from_utf8_lossy(&buf).to_string();
-                Ok(size)
-            }
-            Err(e) => Err(e),
+    fn replconf(&self, connection: &mut TcpStream, args: Vec<&str>) -> Result<usize, std::io::Error> {
+        let mut fields: Vec<RespData> = vec![];
+
+        for arg in args.into_iter() {
+            fields.push(RespData::BulkString(arg.to_string()));
         }
+
+        let send = RespData::Array(fields);
+        let _ = connection.write(send.to_string().as_bytes());
+
+        Self::read_from_stream(connection)
     }
 
     fn ping(&self, connection: &mut TcpStream) -> Result<String, String> {
