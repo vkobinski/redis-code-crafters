@@ -1,6 +1,6 @@
 use std::fmt;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum RespType {
     SimpleString,
     Error,
@@ -41,23 +41,50 @@ pub enum RespData {
     Integer(i64),
     BulkString(String),
     Array(Vec<RespData>),
+    RequestArray(Vec<RespData>),
 }
 
 impl fmt::Display for RespData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            RespData::SimpleString(s) => write!(f, "{}{}\r\n", <RespType as Into<&str>>::into(RespType::SimpleString), s),
-            RespData::Error(e) => write!(f, "{}{}\r\n", <RespType as Into<&str>>::into(RespType::Error), e),
-            RespData::Integer(i) => write!(f, "{}{}\r\n", <RespType as Into<&str>>::into(RespType::Integer), i),
-            RespData::BulkString(b) => write!(f, "{}{}\r\n{}", <RespType as Into<&str>>::into(RespType::BulkString), b.len(), b),
+            RespData::SimpleString(s) => write!(
+                f,
+                "{}{}\r\n",
+                <RespType as Into<&str>>::into(RespType::SimpleString),
+                s
+            ),
+            RespData::Error(e) => write!(
+                f,
+                "{}{}\r\n",
+                <RespType as Into<&str>>::into(RespType::Error),
+                e
+            ),
+            RespData::Integer(i) => write!(
+                f,
+                "{}{}\r\n",
+                <RespType as Into<&str>>::into(RespType::Integer),
+                i
+            ),
+            RespData::BulkString(b) => write!(
+                f,
+                "{}{}\r\n{}",
+                <RespType as Into<&str>>::into(RespType::BulkString),
+                b.len(),
+                b
+            ),
             RespData::Array(a) => {
                 let mut result = String::new();
-                result.push_str(&format!("{}{}\r\n", <RespType as Into<&str>>::into(RespType::Array), a.len()));
+                result.push_str(&format!(
+                    "{}{}\r\n",
+                    <RespType as Into<&str>>::into(RespType::Array),
+                    a.len()
+                ));
                 for data in a {
                     result.push_str(&format!("{}\r\n", data));
                 }
                 write!(f, "{}", result)
             }
+            _ => panic!(),
         }
     }
 }
@@ -74,7 +101,7 @@ impl RespData {
     }
 
     pub fn parse_simple_string(chars: &String) -> Option<RespData> {
-        let res = chars.split("\n").next().unwrap();
+        let res = chars.split("\r\n").next().unwrap();
         Some(RespData::SimpleString(res.to_string()))
     }
 
@@ -90,16 +117,27 @@ impl RespData {
         let mut vals = serialized.split("\r\n");
         let size = vals.next().unwrap().parse::<usize>().unwrap();
 
-        let data = vals.next().unwrap().to_string().chars().take(size).collect();
+        let data = vals
+            .next()
+            .unwrap()
+            .to_string()
+            .chars()
+            .take(size)
+            .collect();
 
         Some(RespData::BulkString(data))
     }
 
     pub fn parse_array(serialized: &String) -> Option<RespData> {
         let binding = serialized.chars().skip(1).collect::<String>();
+
         let mut vals = binding.split("\r\n").into_iter();
 
-        let size = vals.next().unwrap().parse::<u32>().unwrap();
+        let size = match vals.next().unwrap().parse::<u32>() {
+            Ok(size) => size,
+            Err(_) => return None,
+        };
+
         let mut array: Vec<RespData> = vec![];
 
         for _ in 0..size {
@@ -110,7 +148,8 @@ impl RespData {
 
             match data_type {
                 RespType::BulkString => {
-                    let receive = format!("{}\r\n{}", cur.collect::<String>(), vals.next().unwrap());
+                    let receive =
+                        format!("{}\r\n{}", cur.collect::<String>(), vals.next().unwrap());
                     data = RespData::parse(&receive, &data_type).unwrap();
                 }
                 _ => {
@@ -121,7 +160,25 @@ impl RespData {
             array.push(data);
         }
 
-        Some(RespData::Array(array))
+        let mut return_array: Vec<RespData> = vec![];
+
+        let data_type = serialized.chars().next().map(RespType::from).unwrap();
+
+        if data_type == RespType::Array {
+            let serialized_string: String = vals.collect::<Vec<&str>>().join("\r\n");
+            if let Some(data) = Self::parse(&serialized_string, &data_type) {
+                match data {
+                    RespData::RequestArray(array) => {
+                        return_array.extend(array);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        return_array.push(RespData::Array(array));
+
+        Some(RespData::RequestArray(return_array))
     }
 
     pub fn inside_value(&self) -> Option<&str> {

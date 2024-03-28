@@ -3,7 +3,7 @@ use std::{
     io::{Read, Write},
     net::TcpStream,
     sync::{Arc, Mutex},
-    thread::scope,
+    thread::scope, vec,
 };
 
 use super::parse::RespData;
@@ -119,14 +119,13 @@ impl Info {
         }
     }
 
-    fn read_from_stream(connection: &mut TcpStream) -> Result<usize, std::io::Error> {
-        let mut buf = [0; 2024];
+    fn read_from_stream(connection: &mut TcpStream) -> Result<String, std::io::Error> {
+        let mut buf = [0; 2048];
 
         match connection.read(&mut buf) {
             Ok(size) => {
                 let received = String::from_utf8_lossy(&buf).to_string();
-                println!("RECEIVED: {}", received);
-                Ok(size)
+                Ok(received)
             }
             Err(e) => Err(e),
         }
@@ -142,7 +141,16 @@ impl Info {
         let send = RespData::Array(fields);
         let _ = connection.write(send.to_string().as_bytes());
 
-        Self::read_from_stream(connection)
+        match Self::read_from_stream(connection) {
+            Ok(received) => {
+                if received.contains(&"FULLRESYNC") {
+                    //Self::read_from_stream(connection).unwrap();
+                    return Ok(1)
+                }
+                Err(std::io::Error::new(std::io::ErrorKind::Other, "Could not PSYNC"))
+            },
+            Err(e) => return Err(e),
+        }
     }
 
     fn replconf(&self, connection: &mut TcpStream, args: Vec<&str>) -> Result<usize, std::io::Error> {
@@ -155,7 +163,8 @@ impl Info {
         let send = RespData::Array(fields);
         let _ = connection.write(send.to_string().as_bytes());
 
-        Self::read_from_stream(connection)
+        Self::read_from_stream(connection).unwrap();
+        Ok(1)
     }
 
     fn ping(&self, connection: &mut TcpStream) -> Result<String, String> {

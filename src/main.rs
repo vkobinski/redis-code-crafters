@@ -2,6 +2,7 @@ mod redis;
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
+use std::iter::Inspect;
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex, RwLock};
 use std::{env, thread};
@@ -13,7 +14,7 @@ use crate::redis::parse::{Resp, RespData};
 
 fn handle_connection(persistence: &State, mut stream: TcpStream) {
     loop {
-        let mut buf = [0; 1028];
+        let mut buf = [0; 1024];
 
         match stream.read(&mut buf) {
             Ok(size) => {
@@ -29,30 +30,64 @@ fn handle_connection(persistence: &State, mut stream: TcpStream) {
 
         let received = String::from_utf8_lossy(&buf);
         let req = Resp::parse(received.to_string()).expect("Could not parse request");
-        handle_request(persistence, &mut stream, &req);
+
+        match req.data {
+            RespData::RequestArray(array) => {
+                for req in array {
+                    let resp = Resp {
+                        data_type: redis::parse::RespType::Array,
+                        data: req,
+                    };
+                    handle_request(persistence, &mut stream, &resp);
+                }
+            }
+            _ => {
+                println!("Received: {:?}", req);
+                handle_request(persistence, &mut stream, &req);
+            }
+        }
     }
 }
 
-fn handle_connection_slave(persistence: &State, stream: Arc<Mutex<TcpStream>>) {
+fn handle_connection_slave(persistence: &Arc<State>, stream: Arc<Mutex<TcpStream>>) {
     println!("SLAVE HANDLING CONNECTIONS!");
 
     loop {
         let mut conn = stream.lock().unwrap();
 
-        let mut buf = [0; 1028];
         loop {
+            let mut buf = [0; 1024];
             match conn.read(&mut buf) {
                 Ok(size) => {
                     if size <= 0 {
                         continue;
                     }
+
+                    println!("Handling request");
                     let received = &String::from_utf8_lossy(&buf[..size]);
+
                     let req = Resp::parse(received.to_string()).unwrap();
 
-                    let mut stream = conn.try_clone().unwrap();
-                    println!("Handling request");
-                    handle_request(&persistence, &mut stream, &req);
+                    match req.data {
+                        RespData::RequestArray(array) => {
+                            for req in array {
+                                let resp = Resp {
+                                    data_type: redis::parse::RespType::Array,
+                                    data: req,
+                                };
 
+                                let send_stream = Arc::clone(persistence);
+                                let mut stream = conn.try_clone().unwrap();
+
+                                thread::spawn(move || {
+                                    handle_request(&send_stream, &mut stream, &resp);
+                                });
+                            }
+                        }
+                        _ => {
+                            println!("Received: {:?}", req);
+                        }
+                    }
                 }
                 Err(e) => {
                     println!("error: {}", e);
