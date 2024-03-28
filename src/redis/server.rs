@@ -3,7 +3,8 @@ use std::{
     io::{Read, Write},
     net::TcpStream,
     sync::{Arc, Mutex},
-    thread::scope, vec,
+    thread::scope,
+    vec,
 };
 
 use super::parse::RespData;
@@ -121,13 +122,16 @@ impl Info {
 
     fn read_from_stream(connection: &mut TcpStream) -> Result<String, std::io::Error> {
         let mut buf = [0; 2048];
-
-        match connection.read(&mut buf) {
-            Ok(size) => {
-                let received = String::from_utf8_lossy(&buf).to_string();
-                Ok(received)
+        loop {
+            match connection.read(&mut buf) {
+                Ok(size) => {
+                    if size > 0 {
+                        let received = String::from_utf8_lossy(&buf).to_string();
+                        return Ok(received);
+                    }
+                }
+                Err(e) => return Err(e),
             }
-            Err(e) => Err(e),
         }
     }
 
@@ -144,16 +148,31 @@ impl Info {
         match Self::read_from_stream(connection) {
             Ok(received) => {
                 if received.contains(&"FULLRESYNC") {
-                    //Self::read_from_stream(connection).unwrap();
-                    return Ok(1)
+                    println!("RECEIVED FULLRESYNC");
+                    match Self::read_from_stream(connection) {
+                        Ok(received) => {
+                            if received.contains(&"REDIS") {
+                                return Ok(1);
+                            }
+                        }
+                        Err(e) => return Err(e),
+                    }
+                    return Ok(1);
                 }
-                Err(std::io::Error::new(std::io::ErrorKind::Other, "Could not PSYNC"))
-            },
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "Could not PSYNC",
+                ))
+            }
             Err(e) => return Err(e),
         }
     }
 
-    fn replconf(&self, connection: &mut TcpStream, args: Vec<&str>) -> Result<usize, std::io::Error> {
+    fn replconf(
+        &self,
+        connection: &mut TcpStream,
+        args: Vec<&str>,
+    ) -> Result<usize, std::io::Error> {
         let mut fields: Vec<RespData> = vec![];
 
         for arg in args.into_iter() {
