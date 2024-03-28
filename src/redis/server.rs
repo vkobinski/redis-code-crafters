@@ -4,7 +4,6 @@ use std::{
     io::{Read, Write},
     net::TcpStream,
     sync::{Arc, Mutex},
-    thread::scope,
     vec,
 };
 
@@ -148,6 +147,7 @@ impl Info {
 
         match Self::read_from_stream(connection) {
             Ok(received) => {
+
                 let resp = Resp::parse(received).unwrap();
 
                 let mut is_working = false;
@@ -214,8 +214,8 @@ impl Info {
                         let mut buf = [0; 2024];
 
                         match connection.read(&mut buf) {
-                            Ok(size) => {
-                                let received = String::from_utf8_lossy(&buf).to_string();
+                            Ok(_size) => {
+                                let _received = String::from_utf8_lossy(&buf).to_string();
                             }
                             _ => {}
                         }

@@ -95,37 +95,6 @@ pub fn handle_set(persistence: &State, stream: &mut TcpStream, vals: &[RespData]
 
 }
 
-
-pub fn handle_set_slave(persistence: &State, vals: &[RespData]) {
-    let key = vals.get(1).unwrap().inside_value().unwrap();
-    println!("SET KEY: {}", key);
-    let value = vals.get(2).unwrap();
-
-    let has_expiry = match vals.get(3) {
-        Some(val) => match val {
-            RespData::BulkString(v) => match v.to_lowercase().as_str() {
-                "px" => match vals.get(4).unwrap() {
-                    RespData::BulkString(v) => v.parse::<u128>().unwrap(),
-                    _ => panic!(),
-                },
-                _ => 0,
-            },
-            _ => panic!(),
-        },
-        None => 0,
-    };
-
-    let insert_val = PersistedValue {
-        data: value.clone(),
-        timestamp: std::time::SystemTime::now(),
-        expiry: has_expiry,
-    };
-
-    let mut persist = persistence.persisted.lock().unwrap();
-    persist.insert(key.to_string(), insert_val);
-
-}
-
 pub fn handle_get(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
     let key = vals.get(1).unwrap().inside_value().unwrap();
     println!("KEY: {:?}", key);
@@ -176,7 +145,6 @@ pub fn handle_replconf(persistence: &State, stream: &mut TcpStream, vals: &[Resp
             "listening-port" => {
                 if let Role::Master(master) = persistence.info.write().unwrap().role.borrow_mut() {
                     if let Some(RespData::BulkString(_v)) = vals.get(2) {
-                        //master.slaves_ports.push(v.parse().unwrap());
                         master.slave_ports.push(port_addr);
                         master
                             .slave_stream

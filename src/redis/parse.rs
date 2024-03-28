@@ -41,6 +41,7 @@ impl From<char> for RespType {
 pub enum RespData {
     SimpleString(String),
     Error(String),
+    #[allow(dead_code)]
     Integer(i64),
     BulkString(String),
     Array(Vec<RespData>),
@@ -112,7 +113,7 @@ impl RespData {
 
         return_array.push(RespData::SimpleString(res.to_string()));
 
-        let next_string = split.next().unwrap();
+        let next_string: String = split.collect::<Vec<&str>>().join("\r\n");
         let data_type = next_string.chars().next().map(RespType::from).unwrap();
 
         if data_type != RespType::None {
@@ -121,7 +122,9 @@ impl RespData {
                     RespData::RequestArray(array) => {
                         return_array.extend(array);
                     }
-                    _ => {}
+                    _ => {
+                        return_array.push(data);
+                    }
                 }
             }
         }
@@ -144,7 +147,15 @@ impl RespData {
 
         let test: String;
 
-        if size_test.to_string().chars().peekable().peek().unwrap().to_string() == "$" {
+        if size_test
+            .to_string()
+            .chars()
+            .peekable()
+            .peek()
+            .unwrap()
+            .to_string()
+            == "$"
+        {
             test = size_test.chars().skip(1).collect();
         } else {
             test = size_test.to_string();
@@ -199,14 +210,14 @@ impl RespData {
 
         let data_type = serialized.chars().next().map(RespType::from).unwrap();
 
-        if data_type == RespType::Array {
-            let serialized_string: String = vals.collect::<Vec<&str>>().join("\r\n");
-            if let Some(data) = Self::parse(&serialized_string, &data_type) {
-                match data {
-                    RespData::RequestArray(array) => {
-                        return_array.extend(array);
-                    }
-                    _ => {}
+        let serialized_string: String = vals.collect::<Vec<&str>>().join("\r\n");
+        if let Some(data) = Self::parse(&serialized_string, &data_type) {
+            match data {
+                RespData::RequestArray(array) => {
+                    return_array.extend(array);
+                }
+                _ => {
+                    return_array.push(data);
                 }
             }
         }
@@ -235,6 +246,7 @@ pub struct Resp {
 
 impl Resp {
     pub fn parse(serialized: String) -> Option<Resp> {
+
         let data_type = serialized.chars().next().map(RespType::from).unwrap();
         let data = RespData::parse(&serialized, &data_type).unwrap();
 

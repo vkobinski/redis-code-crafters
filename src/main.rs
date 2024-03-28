@@ -1,8 +1,7 @@
 mod redis;
 
 use std::collections::HashMap;
-use std::io::{Read, Write};
-use std::iter::Inspect;
+use std::io::Read;
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex, RwLock};
 use std::{env, thread};
