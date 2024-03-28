@@ -1,3 +1,4 @@
+use core::panic;
 use std::{
     collections::HashMap,
     io::{Read, Write},
@@ -7,7 +8,7 @@ use std::{
     vec,
 };
 
-use super::parse::RespData;
+use super::parse::{Resp, RespData};
 
 #[derive(Clone, Debug)]
 pub struct Master {
@@ -127,7 +128,6 @@ impl Info {
                 Ok(size) => {
                     if size > 0 {
                         let received = String::from_utf8_lossy(&buf).to_string();
-                        println!("Received: {:?}", received);
                         return Ok(received);
                     }
                 }
@@ -148,19 +148,36 @@ impl Info {
 
         match Self::read_from_stream(connection) {
             Ok(received) => {
-                if received.contains(&"FULLRESYNC") {
-                    println!("RECEIVED FULLRESYNC");
-                    match Self::read_from_stream(connection) {
-                        Ok(received) => {
-                            println!("RECEIVED RDB");
-                            if received.contains(&"REDIS0011") {
-                                return Ok(1);
+                let resp = Resp::parse(received).unwrap();
+
+                let mut is_working = false;
+
+                match resp.data {
+                    RespData::RequestArray(array) => {
+                        for req in array {
+                            match req {
+                                RespData::SimpleString(s) => {
+                                    if s.contains(&"FULLRESYNC") {
+                                        is_working = true;
+                                    }
+                                }
+                                RespData::BulkString(s) => {
+                                    if s.contains(&"REDIS0011") && is_working {
+                                        return Ok(1);
+                                    }
+                                    is_working = false;
+                                }
+                                _ => {}
                             }
                         }
-                        Err(e) => println!("error: {:?}", e),
                     }
+                    _ => panic!("PSYNC received wrong answer"),
+                };
+
+                if is_working {
                     return Ok(1);
                 }
+
                 Err(std::io::Error::new(
                     std::io::ErrorKind::Other,
                     "Could not PSYNC",

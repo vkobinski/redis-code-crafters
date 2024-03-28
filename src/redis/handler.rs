@@ -226,7 +226,6 @@ pub fn handle_psync(persistence: &State, stream: &mut TcpStream, _vals: &[RespDa
 }
 
 pub fn handle_request(persistence: &State, stream: &mut TcpStream, req: &Resp) {
-    println!("REQ: {:?}", req.data);
     match &req.data {
         RespData::Array(vals) => match vals.get(0).unwrap() {
             RespData::BulkString(command) => match command.to_lowercase().as_str() {

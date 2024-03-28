@@ -7,6 +7,7 @@ pub enum RespType {
     Integer,
     BulkString,
     Array,
+    None,
 }
 
 impl Into<&str> for RespType {
@@ -17,6 +18,7 @@ impl Into<&str> for RespType {
             RespType::Integer => ":",
             RespType::BulkString => "$",
             RespType::Array => "*",
+            RespType::None => "\0",
         }
     }
 }
@@ -29,6 +31,7 @@ impl From<char> for RespType {
             ':' => RespType::Integer,
             '$' => RespType::BulkString,
             '*' => RespType::Array,
+            '\0' => RespType::None,
             _ => panic!("Invalid RESP type"),
         }
     }
@@ -97,12 +100,33 @@ impl RespData {
             RespType::Integer => RespData::parse_integer(chars),
             RespType::BulkString => RespData::parse_bulk_string(chars),
             RespType::Array => RespData::parse_array(chars),
+            RespType::None => None,
         }
     }
 
     pub fn parse_simple_string(chars: &String) -> Option<RespData> {
-        let res = chars.split("\r\n").next().unwrap();
-        Some(RespData::SimpleString(res.to_string()))
+        let mut return_array: Vec<RespData> = vec![];
+
+        let mut split = chars.split("\r\n");
+        let res = split.next().unwrap();
+
+        return_array.push(RespData::SimpleString(res.to_string()));
+
+        let next_string = split.next().unwrap();
+        let data_type = next_string.chars().next().map(RespType::from).unwrap();
+
+        if data_type != RespType::None {
+            if let Some(data) = Self::parse(&next_string.to_string(), &data_type) {
+                match data {
+                    RespData::RequestArray(array) => {
+                        return_array.extend(array);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        Some(RespData::RequestArray(return_array))
     }
 
     pub fn parse_error(_chars: &String) -> Option<RespData> {
@@ -115,7 +139,18 @@ impl RespData {
 
     pub fn parse_bulk_string(serialized: &String) -> Option<RespData> {
         let mut vals = serialized.split("\r\n");
-        let size = vals.next().unwrap().parse::<usize>().unwrap();
+
+        let size_test = vals.next().unwrap();
+
+        let test: String;
+
+        if size_test.to_string().chars().peekable().peek().unwrap().to_string() == "$" {
+            test = size_test.chars().skip(1).collect();
+        } else {
+            test = size_test.to_string();
+        }
+
+        let size = test.parse::<usize>().unwrap();
 
         let data = vals
             .next()
