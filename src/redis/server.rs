@@ -127,6 +127,7 @@ impl Info {
                 Ok(size) => {
                     if size > 0 {
                         let received = String::from_utf8_lossy(&buf).to_string();
+                        println!("Received: {:?}", received);
                         return Ok(received);
                     }
                 }
