@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex, RwLock};
+use std::time::Duration;
 use std::{env, thread};
 
 use redis::handler::{handle_request, PersistenceArc, State};
@@ -37,8 +38,11 @@ fn handle_connection(persistence: &State, mut stream: TcpStream) {
                         break;
                     }
                 }
-                None => {break}
-            };
+                None => {
+                    break;
+                }
+            }
+            thread::sleep(Duration::from_millis(100)); // Add a small delay to avoid busy-waiting
         }
 
         match req.data {
