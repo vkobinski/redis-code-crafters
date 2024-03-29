@@ -140,6 +140,8 @@ pub fn handle_error(stream: &mut TcpStream, msg: &str) {
 pub fn handle_replconf(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
     let port_addr = stream.peer_addr().unwrap().port();
 
+    println!("REPLCONF: {:?}", vals);
+
     if let RespData::BulkString(command) = &vals[1] {
         match command.to_lowercase().as_str() {
             "getack" => {
