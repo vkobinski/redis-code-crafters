@@ -1,5 +1,6 @@
 mod redis;
 
+use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::io::Read;
 use std::net::{TcpListener, TcpStream};
@@ -72,6 +73,7 @@ fn handle_connection_slave(persistence: &Arc<State>, stream: Arc<Mutex<TcpStream
         .unwrap()
         .as_slave()
         .unwrap()
+        .borrow_mut()
         .is_live = true;
 
     loop {
