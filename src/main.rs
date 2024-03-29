@@ -37,7 +37,7 @@ fn handle_connection(persistence: &State, mut stream: TcpStream) {
                         break;
                     }
                 }
-                None => {}
+                None => {break}
             };
         }
 
