@@ -85,6 +85,15 @@ impl Default for Info {
 }
 
 impl Info {
+    pub fn set_slave_live(&mut self) {
+        match &mut self.role {
+            Role::Master(_) => todo!(),
+            Role::Slave(s) => {
+                s.is_live = true;
+            }
+        }
+    }
+
     pub fn slave(&mut self, host: String, port: u16) {
         let mut connection = TcpStream::connect(format!("{}:{}", host.to_string(), port)).unwrap();
 
@@ -207,7 +216,7 @@ impl Info {
                                     let par =
                                         Resp::parse(Self::read_from_stream(connection).unwrap())
                                             .unwrap();
-                                        println!("{:?}", par.data);
+                                    println!("{:?}", par.data);
                                     array.push(par.data);
                                 }
                             }

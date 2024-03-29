@@ -173,7 +173,7 @@ pub fn handle_replconf(persistence: &State, stream: &mut TcpStream, vals: &[Resp
                                         RespData::BulkString(val) => {
                                             let val_under = val.to_lowercase();
                                             if val_under == "ack" {
-                                                let offset = vals.get(2).unwrap();
+                                                let _offset = vals.get(2).unwrap();
                                             }
                                         }
                                         _ => {}

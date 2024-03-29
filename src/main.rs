@@ -1,6 +1,5 @@
 mod redis;
 
-use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::io::Read;
 use std::net::{TcpListener, TcpStream};
@@ -32,20 +31,6 @@ fn handle_connection(persistence: &State, mut stream: TcpStream) {
         let received = String::from_utf8_lossy(&buf);
         let req = Resp::parse(received.to_string()).expect("Could not parse request");
 
-        loop {
-            match persistence.info.read().unwrap().as_slave() {
-                Some(slave) => {
-                    if slave.is_live {
-                        break;
-                    }
-                }
-                None => {
-                    break;
-                }
-            }
-            thread::sleep(Duration::from_millis(100)); // Add a small delay to avoid busy-waiting
-        }
-
         match req.data {
             RespData::RequestArray(array) => {
                 for req in array {
@@ -66,15 +51,6 @@ fn handle_connection(persistence: &State, mut stream: TcpStream) {
 
 fn handle_connection_slave(persistence: &Arc<State>, stream: Arc<Mutex<TcpStream>>) {
     println!("SLAVE HANDLING CONNECTIONS!");
-
-    persistence
-        .info
-        .write()
-        .unwrap()
-        .as_slave()
-        .unwrap()
-        .borrow_mut()
-        .is_live = true;
 
     loop {
         let mut conn = stream.lock().unwrap();
