@@ -22,6 +22,7 @@ pub struct Slave {
     pub master_host: String,
     pub master_port: u16,
     pub stream: Arc<Mutex<TcpStream>>,
+    pub is_live: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -91,6 +92,7 @@ impl Info {
             master_host: host,
             master_port: port,
             stream: Arc::new(Mutex::new(connection.try_clone().unwrap())),
+            is_live: false,
         });
 
         self.ping(&mut connection).unwrap();

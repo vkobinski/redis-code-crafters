@@ -30,7 +30,14 @@ fn handle_connection(persistence: &State, mut stream: TcpStream) {
         let received = String::from_utf8_lossy(&buf);
         let req = Resp::parse(received.to_string()).expect("Could not parse request");
 
-        println!("Received: {:?}", req);
+        match persistence.info.read().unwrap().as_slave() {
+            Some(slave) => {
+                while !slave.is_live {
+
+                }
+            },
+            None => {},
+        };
 
         match req.data {
             RespData::RequestArray(array) => {
@@ -52,6 +59,8 @@ fn handle_connection(persistence: &State, mut stream: TcpStream) {
 
 fn handle_connection_slave(persistence: &Arc<State>, stream: Arc<Mutex<TcpStream>>) {
     println!("SLAVE HANDLING CONNECTIONS!");
+
+    persistence.info.write().unwrap().as_slave().unwrap().is_live = true;
 
     loop {
         let mut conn = stream.lock().unwrap();
