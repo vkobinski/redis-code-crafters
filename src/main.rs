@@ -30,14 +30,16 @@ fn handle_connection(persistence: &State, mut stream: TcpStream) {
         let received = String::from_utf8_lossy(&buf);
         let req = Resp::parse(received.to_string()).expect("Could not parse request");
 
-        match persistence.info.read().unwrap().as_slave() {
-            Some(slave) => {
-                while !slave.is_live {
-
+        loop {
+            match persistence.info.read().unwrap().as_slave() {
+                Some(slave) => {
+                    if slave.is_live {
+                        break;
+                    }
                 }
-            },
-            None => {},
-        };
+                None => {}
+            };
+        }
 
         match req.data {
             RespData::RequestArray(array) => {
@@ -60,7 +62,13 @@ fn handle_connection(persistence: &State, mut stream: TcpStream) {
 fn handle_connection_slave(persistence: &Arc<State>, stream: Arc<Mutex<TcpStream>>) {
     println!("SLAVE HANDLING CONNECTIONS!");
 
-    persistence.info.write().unwrap().as_slave().unwrap().is_live = true;
+    persistence
+        .info
+        .write()
+        .unwrap()
+        .as_slave()
+        .unwrap()
+        .is_live = true;
 
     loop {
         let mut conn = stream.lock().unwrap();
@@ -79,7 +87,6 @@ fn handle_connection_slave(persistence: &Arc<State>, stream: Arc<Mutex<TcpStream
 
                     let req = Resp::parse(received.to_string()).unwrap();
 
-
                     match req.data {
                         RespData::RequestArray(array) => {
                             for req in array {
@@ -94,10 +101,8 @@ fn handle_connection_slave(persistence: &Arc<State>, stream: Arc<Mutex<TcpStream
                                 println!("Handling request: {:?}", resp);
 
                                 thread::spawn(move || {
-
-                                handle_request(&send_stream, &mut stream, &resp);
+                                    handle_request(&send_stream, &mut stream, &resp);
                                 });
-
                             }
                         }
                         _ => {
