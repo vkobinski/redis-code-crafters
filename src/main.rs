@@ -64,8 +64,10 @@ fn handle_connection_slave(persistence: &Arc<State>, stream: Arc<Mutex<TcpStream
 
                     println!("Handling request");
                     let received = &String::from_utf8_lossy(&buf[..size]);
+                    println!("Received: {:?}", received);
 
                     let req = Resp::parse(received.to_string()).unwrap();
+
 
                     match req.data {
                         RespData::RequestArray(array) => {
@@ -80,7 +82,11 @@ fn handle_connection_slave(persistence: &Arc<State>, stream: Arc<Mutex<TcpStream
 
                                 println!("Handling request: {:?}", resp);
 
+                                thread::spawn(move || {
+
                                 handle_request(&send_stream, &mut stream, &resp);
+                                });
+
                             }
                         }
                         _ => {

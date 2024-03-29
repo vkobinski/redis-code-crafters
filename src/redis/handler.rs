@@ -100,7 +100,10 @@ pub fn handle_get(persistence: &State, stream: &mut TcpStream, vals: &[RespData]
     println!("KEY: {:?}", key);
 
     let persist = persistence.persisted.lock().unwrap();
-    let value = persist.get(&key.to_string()).unwrap();
+    let value = match persist.get(&key.to_string()) {
+        Some(v) => v,
+        None => return,
+    };
 
     let now = std::time::SystemTime::now();
 

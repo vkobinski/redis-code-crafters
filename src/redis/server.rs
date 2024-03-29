@@ -151,22 +151,20 @@ impl Info {
 
                 let mut is_working = false;
 
+                println!("{:?}", resp.data);
+
                 match resp.data {
                     RespData::RequestArray(mut array) => {
                         for i in 0..2 {
                             let req = array.get(i);
-                            println!("Request: {:?}", req);
-
                             match req {
                                 Some(req) => match req {
                                     RespData::SimpleString(s) => {
-                                        println!("SimpleString: {:?}", s);
                                         if s.contains(&"FULLRESYNC") {
                                             is_working = true;
                                         }
                                     }
                                     RespData::BulkString(s) => {
-                                        println!("BulkString: {:?}", s);
                                         if s.contains(&"REDIS0011") && is_working {
                                             return Ok(1);
                                         }
@@ -207,6 +205,7 @@ impl Info {
                                     let par =
                                         Resp::parse(Self::read_from_stream(connection).unwrap())
                                             .unwrap();
+                                        println!("{:?}", par.data);
                                     array.push(par.data);
                                 }
                             }
