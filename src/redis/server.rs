@@ -149,14 +149,13 @@ impl Info {
             Ok(received) => {
                 let resp = Resp::parse(received).unwrap();
 
-                println!("PSYNC received: {:?}", resp);
-
                 let mut is_working = false;
 
                 match resp.data {
                     RespData::RequestArray(mut array) => {
                         for i in 0..2 {
                             let req = array.get(i);
+                            println!("Request: {:?}", req);
 
                             match req {
                                 Some(req) => match req {
