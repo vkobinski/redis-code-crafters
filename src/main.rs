@@ -30,6 +30,8 @@ fn handle_connection(persistence: &State, mut stream: TcpStream) {
         let received = String::from_utf8_lossy(&buf);
         let req = Resp::parse(received.to_string()).expect("Could not parse request");
 
+        println!("Received: {:?}", req);
+
         match req.data {
             RespData::RequestArray(array) => {
                 for req in array {
