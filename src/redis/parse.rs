@@ -59,8 +59,16 @@ impl RespData {
         RespData::Array(array)
     }
 
+    pub fn new_bulk(data: &str) -> RespData {
+        RespData::BulkString(data.to_string())
+    }
+
     pub fn new_simple_string(val: &str) -> RespData {
         RespData::SimpleString(val.to_string())
+    }
+
+    pub fn as_bytes(&self) -> Vec<u8> {
+        self.to_string().into_bytes()
     }
 }
 
@@ -96,7 +104,7 @@ impl fmt::Display for RespData {
             ),
             RespData::BulkString(b) => write!(
                 f,
-                "{}{}\r\n{}",
+                "{}{}\r\n{}\r\n",
                 <RespType as Into<&str>>::into(RespType::BulkString),
                 b.len(),
                 b
