@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::Duration;
 use std::{env, thread};
 
 use redis::handler::{handle_request, PersistenceArc, State};

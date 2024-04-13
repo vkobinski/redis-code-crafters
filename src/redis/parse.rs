@@ -48,6 +48,22 @@ pub enum RespData {
     RequestArray(Vec<RespData>),
 }
 
+impl RespData {
+    pub fn new_bulk_array(data: &[&str]) -> RespData {
+        let mut array: Vec<RespData> = vec![];
+
+        for val in data {
+            array.push(RespData::BulkString(val.to_string()));
+        }
+
+        RespData::Array(array)
+    }
+
+    pub fn new_simple_string(val: &str) -> RespData {
+        RespData::SimpleString(val.to_string())
+    }
+}
+
 impl PartialEq for RespData {
     fn eq(&self, other: &Self) -> bool {
         if self.inside_value() == other.inside_value() {

@@ -1,11 +1,5 @@
 use std::{
-    borrow::BorrowMut,
-    collections::HashMap,
-    io::Read,
-    io::Write,
-    net::TcpStream,
-    num::ParseIntError,
-    sync::{Arc, Mutex, RwLock},
+    borrow::BorrowMut, collections::HashMap, io::{Read, Write}, net::TcpStream, num::ParseIntError,sync::{Arc, Mutex, RwLock}
 };
 
 use super::{
@@ -13,6 +7,7 @@ use super::{
     server::{Info, Role},
 };
 
+#[derive(Debug)]
 pub struct PersistedValue {
     pub data: RespData,
     pub timestamp: std::time::SystemTime,
@@ -27,7 +22,7 @@ pub struct State {
 pub type PersistenceArc = Arc<State>;
 pub type Persistence = Mutex<HashMap<String, PersistedValue>>;
 
-pub fn write_stream(stream: &mut TcpStream, content: &[u8]) {
+fn write_stream(stream: &mut TcpStream, content: &[u8]) {
     match stream.write(content) {
         Ok(size) => {
             println!("size: {}", size);
@@ -38,15 +33,15 @@ pub fn write_stream(stream: &mut TcpStream, content: &[u8]) {
     };
 }
 
-pub fn handle_ping(stream: &mut TcpStream) {
+fn handle_ping(stream: &mut TcpStream) {
     write_stream(stream, b"+PONG\r\n");
 }
 
-pub fn handle_echo(stream: &mut TcpStream, data: &RespData) {
+fn handle_echo(stream: &mut TcpStream, data: &RespData) {
     write_stream(stream, format!("{}\r\n", data).as_bytes());
 }
 
-pub fn propagate(persistence: &State, vals: &[RespData]) {
+fn propagate(persistence: &State, vals: &[RespData]) {
     let info = persistence.info.read().unwrap();
 
     match &info.role {
@@ -61,9 +56,8 @@ pub fn propagate(persistence: &State, vals: &[RespData]) {
     };
 }
 
-pub fn handle_set(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
+fn handle_set(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
     let key = vals.get(1).unwrap().inside_value().unwrap();
-    println!("SET KEY: {}", key);
     let value = vals.get(2).unwrap();
 
     let has_expiry = match vals.get(3) {
@@ -81,7 +75,7 @@ pub fn handle_set(persistence: &State, stream: &mut TcpStream, vals: &[RespData]
     };
 
     let insert_val = PersistedValue {
-        data: value.clone(),
+        data: RespData::SimpleString(value.inside_value().unwrap().to_string()).clone(),
         timestamp: std::time::SystemTime::now(),
         expiry: has_expiry,
     };
@@ -95,7 +89,31 @@ pub fn handle_set(persistence: &State, stream: &mut TcpStream, vals: &[RespData]
     }
 }
 
-pub fn handle_get(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
+fn handle_type(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
+    let key = vals.get(1).unwrap().inside_value().unwrap();
+
+    println!("TYPE");
+
+    match persistence.persisted.lock().unwrap().get(key) {
+        Some(val) => {
+            match &val.data {
+                RespData::SimpleString(_) => {
+                    write_stream(stream, RespData::new_simple_string("string").to_string().as_bytes());
+                },
+                _ => {
+                    println!("{:?}", val);
+
+                },
+
+            };
+        },
+        None => {
+            write_stream(stream, RespData::new_simple_string("none").to_string().as_bytes());
+        },
+    }
+}
+
+fn handle_get(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
     let key = vals.get(1).unwrap().inside_value().unwrap();
     println!("KEY: {:?}", key);
 
@@ -114,15 +132,10 @@ pub fn handle_get(persistence: &State, stream: &mut TcpStream, vals: &[RespData]
         }
     }
 
-    match &value.data {
-        RespData::BulkString(v) => {
-            write_stream(stream, format!("+{}\r\n", v).as_bytes());
-        }
-        _ => panic!(),
-    }
+    write_stream(stream, &value.data.to_string().as_bytes());
 }
 
-pub fn handle_info(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
+fn handle_info(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
     match vals.get(1).unwrap() {
         RespData::BulkString(val) => match val.as_str() {
             "replication" => {
@@ -135,12 +148,12 @@ pub fn handle_info(persistence: &State, stream: &mut TcpStream, vals: &[RespData
     }
 }
 
-pub fn handle_error(stream: &mut TcpStream, msg: &str) {
+fn handle_error(stream: &mut TcpStream, msg: &str) {
     let resp = RespData::Error(String::from(msg));
     write_stream(stream, format!("{}\r\n", resp.to_string()).as_bytes());
 }
 
-pub fn handle_replconf(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
+fn handle_replconf(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
     let port_addr = stream.peer_addr().unwrap().port();
 
     println!("REPLCONF: {:?}", vals);
@@ -151,11 +164,7 @@ pub fn handle_replconf(persistence: &State, stream: &mut TcpStream, vals: &[Resp
                 match persistence.info.write().unwrap().role.borrow_mut() {
                     Role::Master(master) => {
                         for slave in &master.slave_stream {
-                            let response = RespData::Array(vec![
-                                RespData::BulkString("REPLCONF".to_string()),
-                                RespData::BulkString("GETACK".to_string()),
-                                RespData::BulkString("*".to_string()),
-                            ]);
+                            let response = RespData::new_bulk_array(&["REPLFCONF", "GETACK", "*"]);
 
                             let mut slave_stream = slave.1.lock().unwrap();
 
@@ -186,11 +195,8 @@ pub fn handle_replconf(persistence: &State, stream: &mut TcpStream, vals: &[Resp
                     }
                     Role::Slave(_) => {
 
-                        let response = RespData::Array(vec![
-                            RespData::BulkString("REPLCONF".to_string()),
-                            RespData::BulkString("ACK".to_string()),
-                            RespData::BulkString("0".to_string()),
-                        ]);
+                        let response = RespData::new_bulk_array(&["REPLCONF", "ACK", "0"]);
+
                         stream.write(response.to_string().as_bytes()).unwrap();
                     }
                 };
@@ -215,7 +221,7 @@ pub fn handle_replconf(persistence: &State, stream: &mut TcpStream, vals: &[Resp
     };
 }
 
-pub fn handle_psync(persistence: &State, stream: &mut TcpStream, _vals: &[RespData]) {
+fn handle_psync(persistence: &State, stream: &mut TcpStream, _vals: &[RespData]) {
     let role = &persistence.info.read().unwrap().role;
 
     let (rep_id, offset) = match role {
@@ -256,6 +262,7 @@ pub fn handle_request(persistence: &State, stream: &mut TcpStream, req: &Resp) {
                 "echo" => handle_echo(stream, vals.get(1).unwrap()),
                 "set" => handle_set(persistence, stream, vals),
                 "get" => handle_get(persistence, stream, vals),
+                "type" => handle_type(persistence, stream, vals),
                 "info" => handle_info(persistence, stream, vals),
                 "replconf" => handle_replconf(persistence, stream, vals),
                 "psync" => handle_psync(persistence, stream, vals),
