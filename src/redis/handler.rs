@@ -1,5 +1,10 @@
 use std::{
-    borrow::BorrowMut, collections::HashMap, io::{Read, Write}, net::TcpStream, num::ParseIntError,sync::{Arc, Mutex, RwLock}
+    borrow::BorrowMut,
+    collections::HashMap,
+    io::{Read, Write},
+    net::TcpStream,
+    num::ParseIntError,
+    sync::{Arc, Mutex, RwLock},
 };
 
 use super::{
@@ -45,7 +50,11 @@ fn handle_ping(stream: &mut TcpStream) {
 }
 
 fn handle_echo(stream: &mut TcpStream, data: &RespData) {
-    write_stream(stream, RespData::new_bulk(data.inside_value().unwrap()).to_string().as_bytes());
+    write_stream(
+        stream,
+        &RespData::new_bulk(data.inside_value().unwrap())
+            .as_bytes(),
+    );
 }
 
 fn propagate(persistence: &State, vals: &[RespData]) {
@@ -55,8 +64,8 @@ fn propagate(persistence: &State, vals: &[RespData]) {
         Role::Master(master) => {
             for slave in &master.slave_ports {
                 let mut conn = master.slave_stream.get(&slave).unwrap().lock().unwrap();
-                let send = RespData::Array(vals.to_vec()).to_string();
-                conn.write(send.as_bytes()).unwrap();
+                let send = &RespData::Array(vals.to_vec()).as_bytes();
+                conn.write(send).unwrap();
             }
         }
         Role::Slave(_) => return,
@@ -82,7 +91,7 @@ fn handle_set(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
     };
 
     let insert_val = PersistedValue {
-        data: RespData::SimpleString(value.inside_value().unwrap().to_string()).clone(),
+        data: RespData::new_simple_string(value.inside_value().unwrap()).clone(),
         p_type: PersistedType::String,
         timestamp: std::time::SystemTime::now(),
         expiry: has_expiry,
@@ -102,13 +111,13 @@ fn handle_xadd(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
     let stream_key = iter.next().unwrap().inside_value().unwrap();
     let id = iter.next().unwrap().inside_value().unwrap();
 
-    let mut stream_vals: Vec<RespData> = vec!();
+    let mut stream_vals: Vec<RespData> = vec![];
 
     for val in iter.by_ref() {
         stream_vals.push(val.clone());
     }
 
-    stream_vals.insert(0, RespData::BulkString(id.to_string()));
+    stream_vals.insert(0, RespData::new_bulk(id));
 
     let data = RespData::Array(stream_vals);
 
@@ -124,7 +133,7 @@ fn handle_xadd(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
         persist.insert(stream_key.to_string(), insert_val);
     }
 
-    write_stream(stream, RespData::BulkString(id.to_string()).to_string().as_bytes());
+    write_stream(stream, &RespData::new_bulk(id).as_bytes());
 }
 
 fn handle_type(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
@@ -136,21 +145,19 @@ fn handle_type(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
         Some(val) => {
             match &val.p_type {
                 &PersistedType::String => {
-                    write_stream(stream, RespData::new_simple_string("string").to_string().as_bytes());
-                },
+                    write_stream(stream, &RespData::new_simple_string("string").as_bytes());
+                }
                 &PersistedType::Stream => {
-                    write_stream(stream, RespData::new_simple_string("stream").to_string().as_bytes());
-                },
+                    write_stream(stream, &RespData::new_simple_string("stream").as_bytes());
+                }
                 _ => {
                     println!("{:?}", val);
-
-                },
-
+                }
             };
-        },
+        }
         None => {
-            write_stream(stream, RespData::new_simple_string("none").to_string().as_bytes());
-        },
+            write_stream(stream, &RespData::new_simple_string("none").as_bytes());
+        }
     }
 }
 
@@ -173,7 +180,7 @@ fn handle_get(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
         }
     }
 
-    write_stream(stream, &value.data.to_string().as_bytes());
+    write_stream(stream, &value.data.as_bytes());
 }
 
 fn handle_info(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
@@ -191,7 +198,7 @@ fn handle_info(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
 
 fn handle_error(stream: &mut TcpStream, msg: &str) {
     let resp = RespData::Error(String::from(msg));
-    write_stream(stream, format!("{}\r\n", resp.to_string()).as_bytes());
+    write_stream(stream, &resp.as_bytes());
 }
 
 fn handle_replconf(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
@@ -209,7 +216,7 @@ fn handle_replconf(persistence: &State, stream: &mut TcpStream, vals: &[RespData
 
                             let mut slave_stream = slave.1.lock().unwrap();
 
-                            slave_stream.write(response.to_string().as_bytes()).unwrap();
+                            slave_stream.write(&response.as_bytes()).unwrap();
 
                             let mut buf = [0; 2024];
                             slave_stream.read(&mut buf).unwrap();
@@ -235,10 +242,9 @@ fn handle_replconf(persistence: &State, stream: &mut TcpStream, vals: &[RespData
                         }
                     }
                     Role::Slave(_) => {
-
                         let response = RespData::new_bulk_array(&["REPLCONF", "ACK", "0"]);
 
-                        stream.write(response.to_string().as_bytes()).unwrap();
+                        stream.write(&response.as_bytes()).unwrap();
                     }
                 };
             }
@@ -275,9 +281,7 @@ fn handle_psync(persistence: &State, stream: &mut TcpStream, _vals: &[RespData])
 
     write_stream(
         stream,
-        RespData::SimpleString(format!("FULLRESYNC {} {}", rep_id, offset))
-            .to_string()
-            .as_bytes(),
+        &RespData::SimpleString(format!("FULLRESYNC {} {}", rep_id, offset)).as_bytes(),
     );
 
     let empty_rdb = "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2";
