@@ -1,12 +1,12 @@
 mod redis;
 
-use std::collections::HashMap;
 use std::io::Read;
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex, RwLock};
 use std::{env, thread};
 
-use redis::handler::{handle_request, PersistenceArc, State};
+use redis::handler::{handle_request,State, StateInner};
+use redis::persistence::lib::PersistenceInner;
 use redis::server::Info;
 
 use crate::redis::parse::{Resp, RespData};
@@ -48,7 +48,7 @@ fn handle_connection(persistence: &State, mut stream: TcpStream) {
     }
 }
 
-fn handle_connection_slave(persistence: &Arc<State>, stream: Arc<Mutex<TcpStream>>) {
+fn handle_connection_slave(persistence: &State, stream: Arc<Mutex<TcpStream>>) {
     println!("SLAVE HANDLING CONNECTIONS!");
 
     loop {
@@ -119,8 +119,8 @@ fn main() {
         }
     }
 
-    let persist: PersistenceArc = Arc::new(State {
-        persisted: Mutex::new(HashMap::new()),
+    let persist: State = Arc::new(StateInner {
+        persisted: PersistenceInner::default(),
         info: RwLock::new(server),
     });
 

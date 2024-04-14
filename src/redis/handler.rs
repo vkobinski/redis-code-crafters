@@ -1,6 +1,6 @@
+use core::panic;
 use std::{
     borrow::BorrowMut,
-    collections::HashMap,
     io::{Read, Write},
     net::TcpStream,
     num::ParseIntError,
@@ -9,30 +9,20 @@ use std::{
 
 use super::{
     parse::{Resp, RespData},
+    persistence::{
+        kv_pair::PersistedValue,
+        lib::{PersistedType, PersistenceInner},
+        stream::{StreamError, StreamVal},
+    },
     server::{Info, Role},
 };
 
-#[derive(Debug)]
-pub enum PersistedType {
-    String,
-    Stream,
-}
-
-#[derive(Debug)]
-pub struct PersistedValue {
-    pub data: RespData,
-    pub p_type: PersistedType,
-    pub timestamp: std::time::SystemTime,
-    pub expiry: u128,
-}
-
-pub struct State {
-    pub persisted: Persistence,
+pub struct StateInner {
+    pub persisted: PersistenceInner,
     pub info: RwLock<Info>,
 }
 
-pub type PersistenceArc = Arc<State>;
-pub type Persistence = Mutex<HashMap<String, PersistedValue>>;
+pub type State = Arc<StateInner>;
 
 fn write_stream(stream: &mut TcpStream, content: &[u8]) {
     match stream.write(content) {
@@ -52,8 +42,7 @@ fn handle_ping(stream: &mut TcpStream) {
 fn handle_echo(stream: &mut TcpStream, data: &RespData) {
     write_stream(
         stream,
-        &RespData::new_bulk(data.inside_value().unwrap())
-            .as_bytes(),
+        &RespData::new_bulk(data.inside_value().unwrap()).as_bytes(),
     );
 }
 
@@ -97,8 +86,8 @@ fn handle_set(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
         expiry: has_expiry,
     };
 
-    let mut persist = persistence.persisted.lock().unwrap();
-    persist.insert(key.to_string(), insert_val);
+    let mut persist = persistence.persisted.key_value.lock().unwrap();
+    persist.0.insert(key.to_string(), insert_val);
 
     if persistence.info.read().unwrap().is_master() {
         write_stream(stream, format!("+OK\r\n").as_bytes());
@@ -109,50 +98,66 @@ fn handle_set(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
 fn handle_xadd(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
     let mut iter = vals.iter().skip(1);
     let stream_key = iter.next().unwrap().inside_value().unwrap();
+
     let id = iter.next().unwrap().inside_value().unwrap();
+    let insert_id = StreamVal::parse_id(&id.to_string());
 
-    let mut stream_vals: Vec<RespData> = vec![];
+    let mut stream_vals: Vec<(String, String)> = vec![];
 
-    for val in iter.by_ref() {
-        stream_vals.push(val.clone());
+    for (first, second) in iter.step_by(2).zip(vals.iter().skip(3).step_by(2)) {
+        match (first, second) {
+            (RespData::BulkString(key), RespData::BulkString(value)) => {
+                stream_vals.push((key.to_string(), value.to_string()));
+            }
+            _ => panic!(),
+        };
     }
 
-    stream_vals.insert(0, RespData::new_bulk(id));
-
-    let data = RespData::Array(stream_vals);
-
-    let insert_val = PersistedValue {
-        data,
-        p_type: PersistedType::Stream,
-        timestamp: std::time::SystemTime::now(),
-        expiry: 0,
+    let insert_val = StreamVal {
+        id: insert_id.unwrap(),
+        pairs: stream_vals,
     };
 
     {
-        let mut persist = persistence.persisted.lock().unwrap();
-        persist.insert(stream_key.to_string(), insert_val);
+        match persistence
+            .persisted
+            .stream
+            .lock()
+            .unwrap()
+            .insert(&stream_key.to_string(), insert_val) {
+                Ok(_) => write_stream(stream, &RespData::new_bulk(id).as_bytes()),
+                Err(StreamError::IllegalId) => {
+                    write_stream(stream, "-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n".as_bytes());
+                },
+                Err(StreamError::IdShouldBeHigher) => {
+                    write_stream(stream, "-ERR The ID specified in XADD must be greater than 0-0\r\n".as_bytes());
+                },
+                _ => {
+                    panic!();
+
+                },
+            }
     }
 
-    write_stream(stream, &RespData::new_bulk(id).as_bytes());
 }
 
 fn handle_type(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
     let key = vals.get(1).unwrap().inside_value().unwrap();
 
-    println!("TYPE");
+    match persistence.persisted.stream.lock().unwrap().0.get(key) {
+        Some(_) => {
+            write_stream(stream, &RespData::new_simple_string("stream").as_bytes());
+        }
+        None => {}
+    };
 
-    match persistence.persisted.lock().unwrap().get(key) {
+    match persistence.persisted.key_value.lock().unwrap().0.get(key) {
         Some(val) => {
             match &val.p_type {
                 &PersistedType::String => {
                     write_stream(stream, &RespData::new_simple_string("string").as_bytes());
                 }
-                &PersistedType::Stream => {
-                    write_stream(stream, &RespData::new_simple_string("stream").as_bytes());
-                }
-                _ => {
-                    println!("{:?}", val);
-                }
+                _ => write_stream(stream, &RespData::new_simple_string("none").as_bytes()),
             };
         }
         None => {
@@ -165,7 +170,7 @@ fn handle_get(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
     let key = vals.get(1).unwrap().inside_value().unwrap();
     println!("KEY: {:?}", key);
 
-    let persist = persistence.persisted.lock().unwrap();
+    let persist = &persistence.persisted.key_value.lock().unwrap().0;
     let value = match persist.get(&key.to_string()) {
         Some(v) => v,
         None => return,
