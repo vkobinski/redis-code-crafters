@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Mutex};
+use std::{collections::HashMap, sync::Mutex, time::{SystemTime, UNIX_EPOCH}};
 
 #[derive(Clone)]
 pub struct StreamVal {
@@ -55,7 +55,8 @@ impl StreamVal {
     }
 
     fn auto_generate_id() -> (u128, u32) {
-        todo!()
+        let cur = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
+        (cur, 0)
     }
 
     pub fn parse_id(id: &String, key: &String, per: &Mutex<StreamPersistence>) -> Result<(u128, u32), StreamError> {
