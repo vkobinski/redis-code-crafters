@@ -100,7 +100,7 @@ fn handle_xadd(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
     let stream_key = iter.next().unwrap().inside_value().unwrap();
 
     let id = iter.next().unwrap().inside_value().unwrap();
-    let insert_id = StreamVal::parse_id(&id.to_string());
+    let insert_id = StreamVal::parse_id(&id.to_string(), &stream_key.to_string(), &persistence.persisted.stream);
 
     let mut stream_vals: Vec<(String, String)> = vec![];
 
@@ -125,7 +125,7 @@ fn handle_xadd(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
             .lock()
             .unwrap()
             .insert(&stream_key.to_string(), insert_val) {
-                Ok(_) => write_stream(stream, &RespData::new_bulk(id).as_bytes()),
+                Ok(new_id) => write_stream(stream, &RespData::new_bulk(&new_id).as_bytes()),
                 Err(StreamError::IllegalId) => {
                     write_stream(stream, "-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n".as_bytes());
                 },
