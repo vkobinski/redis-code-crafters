@@ -117,7 +117,9 @@ impl fmt::Display for RespData {
                     a.len()
                 ));
                 for data in a {
-                    result.push_str(&format!("{}\r\n", data));
+                    // Fix this when it is an Array of Arrays
+                    //result.push_str(&format!("{}\r\n", data));
+                    result.push_str(&format!("{}", data));
                 }
                 write!(f, "{}", result)
             }

@@ -95,6 +95,34 @@ fn handle_set(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
     }
 }
 
+fn handle_xrange(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
+
+    let mut vals = vals.iter().skip(1);
+    let stream_key = vals.next().unwrap().inside_value().unwrap().to_string();
+
+    let start = vals.next().unwrap().inside_value().unwrap().to_string();
+    let end = vals.next().unwrap().inside_value().unwrap().to_string();
+
+
+    {
+        let range = persistence
+            .persisted
+            .stream
+            .lock()
+            .unwrap()
+            .get_range(stream_key, start, end);
+
+        let map = range.into_iter().map(|val| {
+            let resp: RespData = val.into();
+            resp
+        });
+
+        write_stream(stream, &RespData::Array(map.collect()).as_bytes());
+
+    }
+
+}
+
 fn handle_xadd(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
     let mut iter = vals.iter().skip(1);
     let stream_key = iter.next().unwrap().inside_value().unwrap();
@@ -104,7 +132,7 @@ fn handle_xadd(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
 
     let mut stream_vals: Vec<(String, String)> = vec![];
 
-    for (first, second) in iter.step_by(2).zip(vals.iter().skip(3).step_by(2)) {
+    for (first, second) in iter.step_by(2).zip(vals.iter().skip(4).step_by(2)) {
         match (first, second) {
             (RespData::BulkString(key), RespData::BulkString(value)) => {
                 stream_vals.push((key.to_string(), value.to_string()));
@@ -309,6 +337,7 @@ pub fn handle_request(persistence: &State, stream: &mut TcpStream, req: &Resp) {
         RespData::Array(vals) => match vals.get(0).unwrap() {
             RespData::BulkString(command) => match command.to_lowercase().as_str() {
                 "xadd" => handle_xadd(persistence, stream, vals),
+                "xrange" => handle_xrange(persistence, stream, vals),
                 "ping" => handle_ping(stream),
                 "echo" => handle_echo(stream, vals.get(1).unwrap()),
                 "set" => handle_set(persistence, stream, vals),

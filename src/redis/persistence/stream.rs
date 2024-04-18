@@ -1,6 +1,13 @@
-use std::{collections::HashMap, sync::Mutex, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    collections::HashMap,
+    sync::Mutex,
+    time::{SystemTime, UNIX_EPOCH},
+    vec,
+};
 
-#[derive(Clone)]
+use crate::redis::parse::RespData;
+
+#[derive(Clone, Debug)]
 pub struct StreamVal {
     pub id: (u128, u32),
     pub pairs: Vec<(String, String)>,
@@ -18,7 +25,7 @@ impl StreamVal {
         format!("{}-{}", self.id.0, self.id.1)
     }
 
-    fn parse_explicit_id(id: String) -> Result<(u128, u32), StreamError> {
+    pub fn parse_explicit_id(id: String) -> Result<(u128, u32), StreamError> {
         let (first, second) = id.split_once("-").unwrap();
 
         match (first.parse(), second.parse()) {
@@ -27,19 +34,21 @@ impl StreamVal {
         }
     }
 
-    fn parse_auto_generate_sequence_id(id: &String, key: &String, per: &Mutex<StreamPersistence>) -> Result<(u128, u32), StreamError> {
+    fn parse_auto_generate_sequence_id(
+        id: &String,
+        key: &String,
+        per: &Mutex<StreamPersistence>,
+    ) -> Result<(u128, u32), StreamError> {
         match per.lock().unwrap().get_last(&key) {
             Some(last) => {
-
                 let new_id: u128 = id.split("-").next().unwrap().parse().unwrap();
-                 
+
                 if new_id == last.id.0 {
-                    Ok((new_id, last.id.1+1))
+                    Ok((new_id, last.id.1 + 1))
                 } else {
                     Ok((new_id, 0))
                 }
-
-            },
+            }
             None => {
                 let first = id.split("-").next().unwrap();
 
@@ -50,16 +59,23 @@ impl StreamVal {
                 } else {
                     Ok((first.parse().unwrap(), 0))
                 }
-            },
+            }
         }
     }
 
     fn auto_generate_id() -> (u128, u32) {
-        let cur = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
+        let cur = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
         (cur, 0)
     }
 
-    pub fn parse_id(id: &String, key: &String, per: &Mutex<StreamPersistence>) -> Result<(u128, u32), StreamError> {
+     pub fn parse_id(
+        id: &String,
+        key: &String,
+        per: &Mutex<StreamPersistence>,
+    ) -> Result<(u128, u32), StreamError> {
         println!("PARSE ID {}", id);
 
         match &id {
@@ -71,10 +87,57 @@ impl StreamVal {
     }
 }
 
+impl Into<RespData> for StreamVal {
+    fn into(self) -> RespData {
+        let mut data: Vec<RespData> = vec![];
+        let mut inside_data: Vec<RespData> = vec![];
+
+        data.push(RespData::BulkString(self.id()));
+        for (key, val) in self.pairs {
+            inside_data.push(RespData::BulkString(key.to_string()));
+            inside_data.push(RespData::BulkString(val.to_string()));
+        }
+
+        data.push(RespData::Array(inside_data));
+
+
+        RespData::Array(data)
+    }
+}
+
 #[derive(Default)]
 pub struct StreamPersistence(pub HashMap<String, Vec<StreamVal>>);
 
 impl StreamPersistence {
+    pub fn get_range(&self, key: String, start: String, end: String) -> Vec<StreamVal> {
+        let mut resp_range: Vec<StreamVal> = vec![];
+
+        // TODO : The sequence number doesn't need to be included
+        //        in the start and end IDs provided to the command.
+        //        If not provided, XRANGE defaults to a sequence number of 0 for
+        //        the start and the maximum sequence number for the end.
+
+        let mut add = false;
+
+        for val in self.0.get(&key).unwrap() {
+            if val.id() == end {
+                add = true;
+            }
+
+            if add {
+                resp_range.push(val.clone());
+            }
+
+            if val.id() == start {
+                add = false;
+            }
+        }
+
+        resp_range.reverse();
+
+        resp_range
+    }
+
     pub fn insert(&mut self, id: &String, val: StreamVal) -> Result<String, StreamError> {
         let return_id = val.id();
         if self.0.contains_key(id) {
@@ -105,11 +168,8 @@ impl StreamPersistence {
 
     pub fn get_last(&self, id: &String) -> Option<StreamVal> {
         match self.0.get(id) {
-            Some(val) => {
-                val.get(0).cloned()
-            },
+            Some(val) => val.get(0).cloned(),
             None => None,
         }
     }
-
 }
