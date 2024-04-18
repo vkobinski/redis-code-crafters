@@ -1,10 +1,11 @@
-use core::panic;
+use core::{panic, time};
 use std::{
     borrow::BorrowMut,
     io::{Read, Write},
     net::TcpStream,
     num::ParseIntError,
     sync::{Arc, Mutex, RwLock},
+    thread,
 };
 
 use super::{
@@ -121,28 +122,70 @@ fn handle_xrange(persistence: &State, stream: &mut TcpStream, vals: &[RespData])
 }
 
 fn handle_xread(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
-    let mut vals = vals.iter().skip(2);
-    let mut get_ids: Vec<String> = vec!();
-    let mut stream_keys: Vec<String> = vec!();
+    let mut vals = vals.iter().skip(1);
+    let mut get_ids: Vec<String> = vec![];
+    let mut stream_keys: Vec<String> = vec![];
 
-    for val in vals {
-        let val = val.inside_value().unwrap();
-        if val.contains("-") {
-            get_ids.push(val.to_string());
-        } else {
-            stream_keys.push(val.to_string());
+    let mut block: Option<u64> = None;
+
+    loop {
+        let val = match vals.next() {
+            Some(v) => v.inside_value().unwrap(),
+            None => break,
+        };
+
+        match val {
+            val if val.contains("streams") => {}
+            val if val.contains("-") => get_ids.push(val.to_string()),
+            val if val.contains("block") => {
+                block = Some(
+                    vals.next()
+                        .unwrap()
+                        .inside_value()
+                        .unwrap()
+                        .parse()
+                        .unwrap(),
+                )
+            }
+            val => stream_keys.push(val.to_string()),
         }
-    };
+    }
+
+    println!("{:?}", block);
+
+    match block {
+        Some(v) => std::thread::sleep(time::Duration::from_millis(v)),
+        _ => {}
+    }
 
     let per = persistence.persisted.stream.lock().unwrap();
-    let range = per.xread(stream_keys.clone(), get_ids);
+
+    let range = per.xread(
+        stream_keys.clone(),
+        get_ids,
+        block,
+        std::time::Instant::now(),
+    );
 
     let mut stream_iter = stream_keys.iter();
 
-    let map: Vec<RespData> = range.into_iter().map(|val| {
-        let res : Vec<RespData> = val.into_iter().map(|v| v.into()).collect();
-        RespData::Array(vec!(RespData::BulkString(stream_iter.next().unwrap().to_string()), RespData::Array(res)))
-    }).collect();
+    let map: Vec<RespData> = range
+        .into_iter()
+        .map(|val| {
+            let res: Vec<RespData> = val.into_iter().map(|v| v.into()).collect();
+
+            match res.len() {
+                0 => RespData::Array(vec![
+                    RespData::BulkString(stream_iter.next().unwrap().to_string()),
+                    RespData::BulkString("".to_string()),
+                ]),
+                _ => RespData::Array(vec![
+                    RespData::BulkString(stream_iter.next().unwrap().to_string()),
+                    RespData::Array(res),
+                ]),
+            }
+        })
+        .collect();
 
     write_stream(stream, &RespData::Array(map).as_bytes());
 }
@@ -172,6 +215,7 @@ fn handle_xadd(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
     let insert_val = StreamVal {
         id: insert_id.unwrap(),
         pairs: stream_vals,
+        added: std::time::Instant::now(),
     };
 
     {

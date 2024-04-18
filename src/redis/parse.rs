@@ -102,13 +102,29 @@ impl fmt::Display for RespData {
                 <RespType as Into<&str>>::into(RespType::Integer),
                 i
             ),
-            RespData::BulkString(b) => write!(
-                f,
-                "{}{}\r\n{}\r\n",
-                <RespType as Into<&str>>::into(RespType::BulkString),
-                b.len(),
-                b
-            ),
+            RespData::BulkString(b) => {
+                let size = b.len();
+
+                match size {
+                    0 => {
+                        write!(
+                            f,
+                            "{}-1\r\n{}\r\n",
+                            <RespType as Into<&str>>::into(RespType::BulkString),
+                            b
+                        )
+                    }
+                    _ => {
+                        write!(
+                            f,
+                            "{}{}\r\n{}\r\n",
+                            <RespType as Into<&str>>::into(RespType::BulkString),
+                            b.len(),
+                            b
+                        )
+                    }
+                }
+            }
             RespData::Array(a) => {
                 let mut result = String::new();
                 result.push_str(&format!(

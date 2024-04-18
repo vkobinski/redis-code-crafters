@@ -2,7 +2,6 @@ use std::{
     collections::HashMap,
     sync::Mutex,
     time::{SystemTime, UNIX_EPOCH},
-    vec,
 };
 
 use crate::redis::parse::RespData;
@@ -11,6 +10,7 @@ use crate::redis::parse::RespData;
 pub struct StreamVal {
     pub id: (u128, u32),
     pub pairs: Vec<(String, String)>,
+    pub added: std::time::Instant,
 }
 
 #[derive(Debug)]
@@ -52,8 +52,6 @@ impl StreamVal {
             None => {
                 let first = id.split("-").next().unwrap();
 
-                println!("AUTO GENERATED {} ", first);
-
                 if first.parse::<u128>().unwrap() == 0 {
                     Ok((first.parse().unwrap(), 1))
                 } else {
@@ -93,6 +91,7 @@ impl Into<RespData> for StreamVal {
         let mut inside_data: Vec<RespData> = vec![];
 
         data.push(RespData::BulkString(self.id()));
+
         for (key, val) in self.pairs {
             inside_data.push(RespData::BulkString(key.to_string()));
             inside_data.push(RespData::BulkString(val.to_string()));
@@ -149,11 +148,6 @@ impl StreamPersistence {
     pub fn get_range_to_start(&self, key: String, end: String) -> Vec<StreamVal> {
         let mut resp_range: Vec<StreamVal> = vec![];
 
-        // TODO : The sequence number doesn't need to be included
-        //        in the start and end IDs provided to the command.
-        //        If not provided, XRANGE defaults to a sequence number of 0 for
-        //        the start and the maximum sequence number for the end.
-
         let mut add = false;
 
         for val in self.0.get(&key).unwrap() {
@@ -171,8 +165,16 @@ impl StreamPersistence {
         resp_range
     }
 
-    pub fn xread(&self, keys: Vec<String>, get_ids: Vec<String>) -> Vec<Vec<StreamVal>> {
+    pub fn xread(
+        &self,
+        keys: Vec<String>,
+        get_ids: Vec<String>,
+        block: Option<u64>,
+        start: std::time::Instant,
+    ) -> Vec<Vec<StreamVal>> {
         let mut vals: Vec<Vec<StreamVal>> = vec![];
+
+        let now = std::time::Instant::now();
 
         for (key, get_id) in keys.into_iter().zip(get_ids.into_iter()) {
             let mut resp_range: Vec<StreamVal> = vec![];
@@ -184,6 +186,14 @@ impl StreamPersistence {
             for val in self.0.get(&key).unwrap() {
                 let id = val.id;
 
+                match block {
+                    Some(v) => {
+                        if start.duration_since(val.added) > std::time::Duration::from_millis(v) {
+                            continue;
+                        }
+                    }
+                    _ => {}
+                }
                 if id.0 > get_id.0 || (id.0 == get_id.0 && id.1 > get_id.1) {
                     resp_range.push(val.clone());
                 }
