@@ -108,7 +108,7 @@ impl Into<RespData> for StreamVal {
 pub struct StreamPersistence(pub HashMap<String, Vec<StreamVal>>);
 
 impl StreamPersistence {
-    pub fn get_range(&self, key: String, start: String, end: String) -> Vec<StreamVal> {
+    pub fn get_range(&self, key: String, start: String, end: String, to_end: Option<bool>) -> Vec<StreamVal> {
         let mut resp_range: Vec<StreamVal> = vec![];
 
         // TODO : The sequence number doesn't need to be included
@@ -116,7 +116,10 @@ impl StreamPersistence {
         //        If not provided, XRANGE defaults to a sequence number of 0 for
         //        the start and the maximum sequence number for the end.
 
-        let mut add = false;
+        let mut add = match to_end {
+            Some(v) => v && true,
+            None => false,
+        };
 
         for val in self.0.get(&key).unwrap() {
             if val.id() == end {

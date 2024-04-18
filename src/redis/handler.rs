@@ -105,9 +105,10 @@ fn handle_xrange(persistence: &State, stream: &mut TcpStream, vals: &[RespData])
     let streams = persistence.persisted.stream.lock().unwrap();
 
     {
-        let range: Vec<StreamVal> = match start {
-            val if val == "-" => streams.get_range_to_start(stream_key, end),
-            _ => streams.get_range(stream_key, start, end),
+        let range: Vec<StreamVal> = match (start, end) {
+            (st, en) if st == "-" => streams.get_range_to_start(stream_key, en),
+            (st, en) if en == "+" => streams.get_range(stream_key, st, en, Some(true)),
+            (st,en) => streams.get_range(stream_key, st, en, None),
         };
 
         let map = range.into_iter().map(|val| {
