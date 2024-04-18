@@ -96,21 +96,19 @@ fn handle_set(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
 }
 
 fn handle_xrange(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
-
     let mut vals = vals.iter().skip(1);
     let stream_key = vals.next().unwrap().inside_value().unwrap().to_string();
 
     let start = vals.next().unwrap().inside_value().unwrap().to_string();
     let end = vals.next().unwrap().inside_value().unwrap().to_string();
 
+    let streams = persistence.persisted.stream.lock().unwrap();
 
     {
-        let range = persistence
-            .persisted
-            .stream
-            .lock()
-            .unwrap()
-            .get_range(stream_key, start, end);
+        let range: Vec<StreamVal> = match start {
+            val if val == "-" => streams.get_range_to_start(stream_key, end),
+            _ => streams.get_range(stream_key, start, end),
+        };
 
         let map = range.into_iter().map(|val| {
             let resp: RespData = val.into();
@@ -118,9 +116,7 @@ fn handle_xrange(persistence: &State, stream: &mut TcpStream, vals: &[RespData])
         });
 
         write_stream(stream, &RespData::Array(map.collect()).as_bytes());
-
     }
-
 }
 
 fn handle_xadd(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
@@ -128,7 +124,11 @@ fn handle_xadd(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
     let stream_key = iter.next().unwrap().inside_value().unwrap();
 
     let id = iter.next().unwrap().inside_value().unwrap();
-    let insert_id = StreamVal::parse_id(&id.to_string(), &stream_key.to_string(), &persistence.persisted.stream);
+    let insert_id = StreamVal::parse_id(
+        &id.to_string(),
+        &stream_key.to_string(),
+        &persistence.persisted.stream,
+    );
 
     let mut stream_vals: Vec<(String, String)> = vec![];
 
@@ -152,21 +152,23 @@ fn handle_xadd(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
             .stream
             .lock()
             .unwrap()
-            .insert(&stream_key.to_string(), insert_val) {
-                Ok(new_id) => write_stream(stream, &RespData::new_bulk(&new_id).as_bytes()),
-                Err(StreamError::IllegalId) => {
-                    write_stream(stream, "-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n".as_bytes());
-                },
-                Err(StreamError::IdShouldBeHigher) => {
-                    write_stream(stream, "-ERR The ID specified in XADD must be greater than 0-0\r\n".as_bytes());
-                },
-                _ => {
-                    panic!();
-
-                },
+            .insert(&stream_key.to_string(), insert_val)
+        {
+            Ok(new_id) => write_stream(stream, &RespData::new_bulk(&new_id).as_bytes()),
+            Err(StreamError::IllegalId) => {
+                write_stream(stream, "-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n".as_bytes());
             }
+            Err(StreamError::IdShouldBeHigher) => {
+                write_stream(
+                    stream,
+                    "-ERR The ID specified in XADD must be greater than 0-0\r\n".as_bytes(),
+                );
+            }
+            _ => {
+                panic!();
+            }
+        }
     }
-
 }
 
 fn handle_type(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {

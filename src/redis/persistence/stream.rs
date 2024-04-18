@@ -71,7 +71,7 @@ impl StreamVal {
         (cur, 0)
     }
 
-     pub fn parse_id(
+    pub fn parse_id(
         id: &String,
         key: &String,
         per: &Mutex<StreamPersistence>,
@@ -99,7 +99,6 @@ impl Into<RespData> for StreamVal {
         }
 
         data.push(RespData::Array(inside_data));
-
 
         RespData::Array(data)
     }
@@ -130,6 +129,31 @@ impl StreamPersistence {
 
             if val.id() == start {
                 add = false;
+            }
+        }
+
+        resp_range.reverse();
+
+        resp_range
+    }
+
+    pub fn get_range_to_start(&self, key: String, end: String) -> Vec<StreamVal> {
+        let mut resp_range: Vec<StreamVal> = vec![];
+
+        // TODO : The sequence number doesn't need to be included
+        //        in the start and end IDs provided to the command.
+        //        If not provided, XRANGE defaults to a sequence number of 0 for
+        //        the start and the maximum sequence number for the end.
+
+        let mut add = false;
+
+        for val in self.0.get(&key).unwrap() {
+            if val.id() == end {
+                add = true;
+            }
+
+            if add {
+                resp_range.push(val.clone());
             }
         }
 
