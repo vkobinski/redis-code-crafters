@@ -108,7 +108,13 @@ impl Into<RespData> for StreamVal {
 pub struct StreamPersistence(pub HashMap<String, Vec<StreamVal>>);
 
 impl StreamPersistence {
-    pub fn get_range(&self, key: String, start: String, end: String, to_end: Option<bool>) -> Vec<StreamVal> {
+    pub fn get_range(
+        &self,
+        key: String,
+        start: String,
+        end: String,
+        to_end: Option<bool>,
+    ) -> Vec<StreamVal> {
         let mut resp_range: Vec<StreamVal> = vec![];
 
         // TODO : The sequence number doesn't need to be included
@@ -161,6 +167,23 @@ impl StreamPersistence {
         }
 
         resp_range.reverse();
+
+        resp_range
+    }
+
+    pub fn xread(&self, key: String, get_id: String) -> Vec<StreamVal> {
+        let mut resp_range: Vec<StreamVal> = vec![];
+        resp_range.reverse();
+
+        let get_id = StreamVal::parse_explicit_id(get_id).unwrap();
+
+        for val in self.0.get(&key).unwrap() {
+            let id = val.id;
+
+            if id.0 > get_id.0 || (id.0 == get_id.0 && id.1 > get_id.1) {
+                resp_range.push(val.clone());
+            }
+        }
 
         resp_range
     }

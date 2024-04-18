@@ -108,7 +108,7 @@ fn handle_xrange(persistence: &State, stream: &mut TcpStream, vals: &[RespData])
         let range: Vec<StreamVal> = match (start, end) {
             (st, en) if st == "-" => streams.get_range_to_start(stream_key, en),
             (st, en) if en == "+" => streams.get_range(stream_key, st, en, Some(true)),
-            (st,en) => streams.get_range(stream_key, st, en, None),
+            (st, en) => streams.get_range(stream_key, st, en, None),
         };
 
         let map = range.into_iter().map(|val| {
@@ -118,6 +118,22 @@ fn handle_xrange(persistence: &State, stream: &mut TcpStream, vals: &[RespData])
 
         write_stream(stream, &RespData::Array(map.collect()).as_bytes());
     }
+}
+
+fn handle_xread(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
+    let mut vals = vals.iter().skip(2);
+    let stream_key = vals.next().unwrap().inside_value().unwrap().to_string();
+
+    let get_id = vals.next().unwrap().inside_value().unwrap().to_string();
+
+    let streams = persistence.persisted.stream.lock().unwrap();
+    let range = streams.xread(stream_key.to_string(), get_id);
+
+    let map: Vec<RespData> = range.into_iter().map(|val| val.into()).collect();
+
+    let resp = RespData::Array(vec!(RespData::BulkString(stream_key), RespData::Array(map)));
+
+    write_stream(stream, &RespData::Array(vec!(resp)).as_bytes());
 }
 
 fn handle_xadd(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
@@ -339,6 +355,7 @@ pub fn handle_request(persistence: &State, stream: &mut TcpStream, req: &Resp) {
     match &req.data {
         RespData::Array(vals) => match vals.get(0).unwrap() {
             RespData::BulkString(command) => match command.to_lowercase().as_str() {
+                "xread" => handle_xread(persistence, stream, vals),
                 "xadd" => handle_xadd(persistence, stream, vals),
                 "xrange" => handle_xrange(persistence, stream, vals),
                 "ping" => handle_ping(stream),
