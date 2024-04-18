@@ -171,21 +171,28 @@ impl StreamPersistence {
         resp_range
     }
 
-    pub fn xread(&self, key: String, get_id: String) -> Vec<StreamVal> {
-        let mut resp_range: Vec<StreamVal> = vec![];
-        resp_range.reverse();
+    pub fn xread(&self, keys: Vec<String>, get_ids: Vec<String>) -> Vec<Vec<StreamVal>> {
+        let mut vals: Vec<Vec<StreamVal>> = vec![];
 
-        let get_id = StreamVal::parse_explicit_id(get_id).unwrap();
+        for (key, get_id) in keys.into_iter().zip(get_ids.into_iter()) {
+            let mut resp_range: Vec<StreamVal> = vec![];
 
-        for val in self.0.get(&key).unwrap() {
-            let id = val.id;
+            resp_range.reverse();
 
-            if id.0 > get_id.0 || (id.0 == get_id.0 && id.1 > get_id.1) {
-                resp_range.push(val.clone());
+            let get_id = StreamVal::parse_explicit_id(get_id).unwrap();
+
+            for val in self.0.get(&key).unwrap() {
+                let id = val.id;
+
+                if id.0 > get_id.0 || (id.0 == get_id.0 && id.1 > get_id.1) {
+                    resp_range.push(val.clone());
+                }
             }
+
+            vals.push(resp_range);
         }
 
-        resp_range
+        vals
     }
 
     pub fn insert(&mut self, id: &String, val: StreamVal) -> Result<String, StreamError> {

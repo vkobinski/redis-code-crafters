@@ -122,18 +122,29 @@ fn handle_xrange(persistence: &State, stream: &mut TcpStream, vals: &[RespData])
 
 fn handle_xread(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
     let mut vals = vals.iter().skip(2);
-    let stream_key = vals.next().unwrap().inside_value().unwrap().to_string();
+    let mut get_ids: Vec<String> = vec!();
+    let mut stream_keys: Vec<String> = vec!();
 
-    let get_id = vals.next().unwrap().inside_value().unwrap().to_string();
+    for val in vals {
+        let val = val.inside_value().unwrap();
+        if val.contains("-") {
+            get_ids.push(val.to_string());
+        } else {
+            stream_keys.push(val.to_string());
+        }
+    };
 
-    let streams = persistence.persisted.stream.lock().unwrap();
-    let range = streams.xread(stream_key.to_string(), get_id);
+    let per = persistence.persisted.stream.lock().unwrap();
+    let range = per.xread(stream_keys.clone(), get_ids);
 
-    let map: Vec<RespData> = range.into_iter().map(|val| val.into()).collect();
+    let mut stream_iter = stream_keys.iter();
 
-    let resp = RespData::Array(vec!(RespData::BulkString(stream_key), RespData::Array(map)));
+    let map: Vec<RespData> = range.into_iter().map(|val| {
+        let res : Vec<RespData> = val.into_iter().map(|v| v.into()).collect();
+        RespData::Array(vec!(RespData::BulkString(stream_iter.next().unwrap().to_string()), RespData::Array(res)))
+    }).collect();
 
-    write_stream(stream, &RespData::Array(vec!(resp)).as_bytes());
+    write_stream(stream, &RespData::Array(map).as_bytes());
 }
 
 fn handle_xadd(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
