@@ -150,13 +150,44 @@ fn handle_xread(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) 
             val => stream_keys.push(val.to_string()),
         }
     }
-
-    println!("{:?}", block);
+    
+    let now = std::time::Instant::now();
 
     match block {
+        Some(0) => {
+            loop {
+                std::thread::sleep(time::Duration::from_millis(100));
+
+
+                let per = persistence.persisted.stream.lock().unwrap();
+                let mut exit = false;
+
+                for key in stream_keys.clone() {
+                    let val = per.get_last(&key);
+
+
+                    match val {
+                        Some(val) => {
+                            if now.duration_since(val.added).is_zero() {
+                                println!("break");
+                                exit = true;
+                            }
+                        },
+                        _ => {},
+                    }
+                }
+
+                if exit {
+                    block = None;
+                    break;
+                }
+            };
+        },
         Some(v) => std::thread::sleep(time::Duration::from_millis(v)),
         _ => {}
-    }
+    };
+
+    println!("BLOCK: {:?}", block);
 
     let per = persistence.persisted.stream.lock().unwrap();
 

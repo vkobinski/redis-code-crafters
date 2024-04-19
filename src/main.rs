@@ -143,7 +143,6 @@ fn main() {
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                println!("accepted new connection");
                 let persist = Arc::clone(&persist);
                 thread::spawn(move || {
                     handle_connection(&persist, stream);
