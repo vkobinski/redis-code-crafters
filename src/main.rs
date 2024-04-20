@@ -2,7 +2,7 @@ mod redis;
 
 use std::io::Read;
 use std::net::{TcpListener, TcpStream};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Condvar, Mutex, RwLock};
 use std::{env, thread};
 
 use redis::handler::{handle_request,State, StateInner};
@@ -122,6 +122,7 @@ fn main() {
     let persist: State = Arc::new(StateInner {
         persisted: PersistenceInner::default(),
         info: RwLock::new(server),
+        cond: Condvar::new()
     });
 
     let port = Arc::clone(&persist).info.read().unwrap().port;

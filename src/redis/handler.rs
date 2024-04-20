@@ -4,8 +4,7 @@ use std::{
     io::{Read, Write},
     net::TcpStream,
     num::ParseIntError,
-    sync::{Arc, Mutex, RwLock},
-    thread,
+    sync::{Arc, Condvar, Mutex, RwLock},
 };
 
 use super::{
@@ -21,6 +20,7 @@ use super::{
 pub struct StateInner {
     pub persisted: PersistenceInner,
     pub info: RwLock<Info>,
+    pub cond: Condvar,
 }
 
 pub type State = Arc<StateInner>;
@@ -134,7 +134,12 @@ fn handle_xread(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) 
             None => break,
         };
 
+        let per = persistence.persisted.stream.lock().unwrap();
+
         match val {
+            val if val.contains("$") => {
+                get_ids.push(per.get_last(stream_keys.last().unwrap()).unwrap().id())
+            }
             val if val.contains("streams") => {}
             val if val.contains("-") => get_ids.push(val.to_string()),
             val if val.contains("block") => {
@@ -150,44 +155,20 @@ fn handle_xread(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) 
             val => stream_keys.push(val.to_string()),
         }
     }
-    
-    let now = std::time::Instant::now();
+
+    let start = std::time::Instant::now();
 
     match block {
         Some(0) => {
-            loop {
-                std::thread::sleep(time::Duration::from_millis(100));
-
-
-                let per = persistence.persisted.stream.lock().unwrap();
-                let mut exit = false;
-
-                for key in stream_keys.clone() {
-                    let val = per.get_last(&key);
-
-
-                    match val {
-                        Some(val) => {
-                            if now.duration_since(val.added).is_zero() {
-                                println!("break");
-                                exit = true;
-                            }
-                        },
-                        _ => {},
-                    }
-                }
-
-                if exit {
-                    block = None;
-                    break;
-                }
-            };
+            let per = persistence.persisted.stream.lock().unwrap();
+            let _wait = persistence.cond.wait(per).unwrap();
+        }
+        Some(v) => 
+        {
+            std::thread::sleep(time::Duration::from_millis(v));
         },
-        Some(v) => std::thread::sleep(time::Duration::from_millis(v)),
         _ => {}
     };
-
-    println!("BLOCK: {:?}", block);
 
     let per = persistence.persisted.stream.lock().unwrap();
 
@@ -195,8 +176,10 @@ fn handle_xread(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) 
         stream_keys.clone(),
         get_ids,
         block,
-        std::time::Instant::now(),
+        start
     );
+
+    println!("range");
 
     let mut stream_iter = stream_keys.iter();
 
@@ -257,7 +240,11 @@ fn handle_xadd(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
             .unwrap()
             .insert(&stream_key.to_string(), insert_val)
         {
-            Ok(new_id) => write_stream(stream, &RespData::new_bulk(&new_id).as_bytes()),
+            Ok(new_id) => {
+                persistence.cond.notify_all();
+                println!("Notifying");
+                write_stream(stream, &RespData::new_bulk(&new_id).as_bytes())
+            }
             Err(StreamError::IllegalId) => {
                 write_stream(stream, "-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n".as_bytes());
             }
@@ -277,7 +264,7 @@ fn handle_xadd(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
 fn handle_type(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
     let key = vals.get(1).unwrap().inside_value().unwrap();
 
-    match persistence.persisted.stream.lock().unwrap().0.get(key) {
+    match persistence.persisted.stream.lock().unwrap().map.get(key) {
         Some(_) => {
             write_stream(stream, &RespData::new_simple_string("stream").as_bytes());
         }
@@ -290,7 +277,7 @@ fn handle_type(persistence: &State, stream: &mut TcpStream, vals: &[RespData]) {
                 &PersistedType::String => {
                     write_stream(stream, &RespData::new_simple_string("string").as_bytes());
                 }
-                _ => write_stream(stream, &RespData::new_simple_string("none").as_bytes()),
+                //_ => write_stream(stream, &RespData::new_simple_string("none").as_bytes()),
             };
         }
         None => {

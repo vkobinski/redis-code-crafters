@@ -103,8 +103,15 @@ impl Into<RespData> for StreamVal {
     }
 }
 
-#[derive(Default)]
-pub struct StreamPersistence(pub HashMap<String, Vec<StreamVal>>);
+pub struct StreamPersistence {
+    pub map: HashMap<String, Vec<StreamVal>>,
+}
+
+impl Default for StreamPersistence {
+    fn default() -> Self {
+        Self { map: Default::default() }
+    }
+}
 
 impl StreamPersistence {
     pub fn get_range(
@@ -126,7 +133,7 @@ impl StreamPersistence {
             None => false,
         };
 
-        for val in self.0.get(&key).unwrap() {
+        for val in self.map.get(&key).unwrap() {
             if val.id() == end {
                 add = true;
             }
@@ -150,7 +157,7 @@ impl StreamPersistence {
 
         let mut add = false;
 
-        for val in self.0.get(&key).unwrap() {
+        for val in self.map.get(&key).unwrap() {
             if val.id() == end {
                 add = true;
             }
@@ -174,8 +181,6 @@ impl StreamPersistence {
     ) -> Vec<Vec<StreamVal>> {
         let mut vals: Vec<Vec<StreamVal>> = vec![];
 
-        let now = std::time::Instant::now();
-
         for (key, get_id) in keys.into_iter().zip(get_ids.into_iter()) {
             let mut resp_range: Vec<StreamVal> = vec![];
 
@@ -183,7 +188,7 @@ impl StreamPersistence {
 
             let get_id = StreamVal::parse_explicit_id(get_id).unwrap();
 
-            for val in self.0.get(&key).unwrap() {
+            for val in self.map.get(&key).unwrap() {
                 let id = val.id;
 
                 match block {
@@ -207,8 +212,8 @@ impl StreamPersistence {
 
     pub fn insert(&mut self, id: &String, val: StreamVal) -> Result<String, StreamError> {
         let return_id = val.id();
-        if self.0.contains_key(id) {
-            let values: &mut Vec<StreamVal> = self.0.get_mut(id).unwrap();
+        if self.map.contains_key(id) {
+            let values: &mut Vec<StreamVal> = self.map.get_mut(id).unwrap();
             let last = values.get(0).unwrap();
 
             let new_id = val.id;
@@ -222,19 +227,19 @@ impl StreamPersistence {
 
                 let values_copy = values.to_vec();
 
-                self.0.insert(id.to_string(), values_copy);
+                self.map.insert(id.to_string(), values_copy);
             } else {
                 return Err(StreamError::IllegalId);
             }
         } else {
-            self.0.insert(id.to_string(), vec![val]);
+            self.map.insert(id.to_string(), vec![val]);
         }
 
         Ok(return_id)
     }
 
     pub fn get_last(&self, id: &String) -> Option<StreamVal> {
-        match self.0.get(id) {
+        match self.map.get(id) {
             Some(val) => val.get(0).cloned(),
             None => None,
         }
